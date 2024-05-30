@@ -31,7 +31,8 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/bin/bash /home/startup.sh
-Restart=always
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
