@@ -222,7 +222,19 @@ def main():
     
     print(f"Using port: {port}")
 
-    mabom_file_path = 'mabom.json'
+    # Đảm bảo rằng mabom_file_path là đường dẫn đầy đủ
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    mabom_file_path = os.path.join(script_dir, 'mabom.json')
+
+    # Kiểm tra và tạo file mabom.json nếu chưa tồn tại
+    if not os.path.exists(mabom_file_path):
+        try:
+            with open(mabom_file_path, 'w') as file:
+                json.dump({}, file, indent=4)
+                print(f"Created new mabom history file at {mabom_file_path}")
+        except Exception as e:
+            print(f"Error creating mabom history file: {e}")
+            return
 
     # Run mabom check in a separate thread
     mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path))
@@ -230,6 +242,5 @@ def main():
 
     # Run data sending in the main thread
     send_data_continuously(port)
-
 if __name__ == "__main__":
     main()
