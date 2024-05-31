@@ -13,9 +13,9 @@ curl -o $CLIENT_FILE $GITHUB_URL
 cat <<EOL > /home/startup.sh
 #!/bin/bash
 CLIENT_FILE="/home/client.py"
-GITHUB_URL="$GITHUB_URL"
+GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py"
 curl -o \$CLIENT_FILE \$GITHUB_URL
-python3 \$CLIENT_FILE
+sudo python3 \$CLIENT_FILE
 EOL
 
 # Cấp quyền thực thi cho startup.sh
