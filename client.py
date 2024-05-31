@@ -7,13 +7,16 @@ import json
 from datetime import datetime, timedelta
 from threading import Thread
 
+
+
 def get_port_from_file():
     try:
         with open('/opt/autorun', 'r') as file:
             content = file.read()
-            match = re.search(r'(\d{4}):localhost:22', content)
+            # Biểu thức chính quy để bắt đầu với 1 khoảng trắng và 4 ký tự số hoặc không có khoảng trắng và 5 ký tự số
+            match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
             if match:
-                port = match.group(1)
+                port = match.group(1).strip()  # Xóa khoảng trắng ở đầu nếu có
                 return port
             else:
                 print("Port not found in the file.")
