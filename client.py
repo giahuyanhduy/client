@@ -38,7 +38,7 @@ def get_data_from_url(url):
         return None
 
 def send_data_to_flask(data, port):
-    flask_url = f"http://14.225.74.7:17071/api/receive_data/{port}"
+    flask_url = f"http://103.77.166.69/api/receive_data/{port}"
     try:
         response = requests.post(flask_url, json=data)
         print("Status Code:", response.status_code)
@@ -47,7 +47,7 @@ def send_data_to_flask(data, port):
         print(f"Error sending data to Flask server: {e}")
 
 def check_getdata_status(port):
-    request_url = f"http://14.225.74.7:17071/api/request/{port}"
+    request_url = f"http://103.77.166.69/api/request/{port}"
     try:
         response = requests.get(request_url)
         if response.status_code == 200:
@@ -73,7 +73,7 @@ def check_getdata_status(port):
 
 
 def send_warning(port, pump_id, warning_type):
-    warning_url = f"http://14.225.74.7:17071/api/warning/{port}/{pump_id}/{warning_type}"
+    warning_url = f"http://103.77.166.69/api/warning/{port}/{pump_id}/{warning_type}"
     try:
         response = requests.post(warning_url)
         print(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}")
