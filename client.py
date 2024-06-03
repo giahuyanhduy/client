@@ -102,7 +102,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             print(f"Skipping item because 'MaBomMoiNhat' is missing or None. Item: {item}")
             continue
 
-        if idcot is None hoặc pump is None:
+        if idcot is None or pump is None:
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
 
