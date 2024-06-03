@@ -90,17 +90,12 @@ def send_warning(port, pump_id, warning_type, mabom):
         print(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}, mabom {mabom}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending warning: {e}")
-
 def check_mabom(data, mabom_history, file_path, port, connection_status):
     current_time = datetime.now()
 
     for item in data:
-        if 'MaBomMoiNhat' in item and item['MaBomMoiNhat'] is not None:
-            idcot = item['MaBomMoiNhat'].get('idcot')
-            pump = item['MaBomMoiNhat'].get('pump')
-        else:
-            print(f"Skipping item because 'MaBomMoiNhat' is missing or None. Item: {item}")
-            continue
+        idcot = item.get('id')
+        pump = item.get('pump')  # Lấy giá trị pump phía ngoài
 
         if idcot is None or pump is None:
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
@@ -130,7 +125,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                         if not connection_status[pump_id]['alert_sent']:
                             print(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
-                            send_warning(port, pump_id, "disconnection", mabomtiep)
+                            send_warning(port, pump_id, "disconnection")
                             connection_status[pump_id]['alert_sent'] = True
             else:
                 if connection_status[pump_id]['is_disconnected']:
@@ -162,7 +157,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
                     if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
                         print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
-                        send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi mã bơm kèm theo cảnh báo
+                        send_warning(port, pump_id, f"nonsequential: {mabomtiep}")  # Gửi mã bơm kèm theo cảnh báo
                         call_daylaidulieu_api(pump_id)
                         mabom_history[pump_id].append({
                             'type': 'nonsequential',
@@ -203,6 +198,7 @@ def check_mabom_continuously(port, mabom_file_path):
 
     while True:
         data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
+        #print(data_from_url)
         if data_from_url:
             check_mabom(data_from_url, mabom_history, mabom_file_path, port, connection_status)
         else:
