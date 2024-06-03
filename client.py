@@ -89,7 +89,6 @@ def call_daylaidulieu_api(pump_id):
         print(f"Error calling daylaidulieu API: {e}")
 
 
-
 def check_mabom(data, mabom_history, file_path, port, connection_status):
     current_time = datetime.now()
 
@@ -116,7 +115,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             connection_status[pump_id] = {
                 'is_disconnected': is_disconnected,
                 'disconnect_time': current_time if is_disconnected else None,
-                'alert_sent': False
+                'alert_sent': False,
+                'last_alerted_mabom': None  # Thêm mục này để theo dõi mã bơm đã cảnh báo
             }
         else:
             if is_disconnected:
@@ -137,7 +137,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     connection_status[pump_id] = {
                         'is_disconnected': False,
                         'disconnect_time': None,
-                        'alert_sent': False
+                        'alert_sent': False,
+                        'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom')  # Giữ nguyên giá trị last_alerted_mabom
                     }
 
         if pump_id not in mabom_history:
@@ -156,14 +157,16 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             previous_mabom = mabom_entries[-2][0]
             if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
                 if mabomtiep != previous_mabom + 1:
-                    if not any(isinstance(warning, dict) and warning.get('type') == 'nonsequential' for warning in mabom_history[pump_id]):
+                    # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
+                    if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
                         print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
-                        send_warning(port, pump_id, "nonsequential")
+                        send_warning(port, pump_id, f"nonsequential: {mabomtiep}")  # Gửi mã bơm kèm theo cảnh báo
                         call_daylaidulieu_api(pump_id)
                         mabom_history[pump_id].append({
                             'type': 'nonsequential',
                             'time': current_time.strftime('%Y-%m-%d %H:%M:%S')
                         })
+                        connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
                 else:
                     mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
@@ -173,6 +176,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             print(f"Data successfully written to {file_path}")
     except Exception as e:
         print(f"Error writing to file {file_path}: {e}")
+
+
 
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
