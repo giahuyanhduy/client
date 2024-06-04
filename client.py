@@ -1,4 +1,4 @@
-#ver 1.14
+#ver 1.15
 import requests
 import time
 import os
@@ -256,6 +256,8 @@ def send_data_continuously(port):
             else:
                 print("Failed to retrieve data from URL")
       
+        else:
+            print("getdata is Off")
         time.sleep(4)
 
 def main():
