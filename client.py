@@ -1,4 +1,4 @@
-#ver 1.05
+#ver 1.06
 import requests
 import time
 import os
@@ -97,11 +97,12 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
     for item in data:
         idcot = item.get('id')
         pump = item.get('pump')  # Lấy giá trị pump phía ngoài
+        mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
         if idcot is None or pump is None:
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
-
+        print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
         print(f"Processed item: idcot={idcot}, pump={pump}")
 
         pump_id = str(idcot)
@@ -114,7 +115,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                 'is_disconnected': is_disconnected,
                 'disconnect_time': current_time if is_disconnected else None,
                 'alert_sent': False,
-                'last_alerted_mabom': None  # Thêm mục này để theo dõi mã bơm đã cảnh báo
+                'last_alerted_mabom': None,  # Thêm mục này để theo dõi mã bơm đã cảnh báo
+                'mismatch_count': 0  # Đếm số lần lệch
             }
         else:
             if is_disconnected:
@@ -126,7 +128,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                         if not connection_status[pump_id]['alert_sent']:
                             print(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
-                            send_warning(port, pump_id, "disconnection")
+                            send_warning(port, pump_id, "disconnection", mabomtiep)
                             connection_status[pump_id]['alert_sent'] = True
             else:
                 if connection_status[pump_id]['is_disconnected']:
@@ -136,7 +138,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                         'is_disconnected': False,
                         'disconnect_time': None,
                         'alert_sent': False,
-                        'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom')  # Giữ nguyên giá trị last_alerted_mabom
+                        'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),  # Giữ nguyên giá trị last_alerted_mabom
+                        'mismatch_count': connection_status[pump_id].get('mismatch_count', 0)  # Giữ nguyên giá trị mismatch_count
                     }
 
         if pump_id not in mabom_history:
@@ -155,16 +158,29 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             previous_mabom = mabom_entries[-2][0]
             if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
                 if mabomtiep != previous_mabom + 1:
-                    # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
-                    if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
-                        print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
-                        send_warning(port, pump_id, f"nonsequential: {mabomtiep}")  # Gửi mã bơm kèm theo cảnh báo
-                        call_daylaidulieu_api(pump_id)
-                        mabom_history[pump_id].append({
-                            'type': 'nonsequential',
-                            'time': current_time.strftime('%Y-%m-%d %H:%M:%S')
-                        })
-                        connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
+                    # Kiểm tra trạng thái của vòi là "sẵn sàng"
+                    if item.get('status') == 'sẵn sàng' and mabom_moinhat and mabom_moinhat != pump:
+                        connection_status[pump_id]['mismatch_count'] += 1
+                        print(f"Mã bơm không liên tiếp lần {connection_status[pump_id]['mismatch_count']} cho pump ID {pump_id}")
+
+                        if connection_status[pump_id]['mismatch_count'] == 3:
+                            print(f"Pump ID {pump_id} có mã bơm không liên tiếp 3 lần. Thực hiện restartall.")
+                            subprocess.run(['forever', 'restartall'])
+                            time.sleep(3)
+                            call_daylaidulieu_api(pump_id)
+                            send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
+                            connection_status[pump_id]['mismatch_count'] = 0
+                    else:
+                        # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
+                        if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
+                            print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
+                            send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi mã bơm kèm theo cảnh báo
+                            call_daylaidulieu_api(pump_id)
+                            mabom_history[pump_id].append({
+                                'type': 'nonsequential',
+                                'time': current_time.strftime('%Y-%m-%d %H:%M:%S')
+                            })
+                            connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
                 else:
                     mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
