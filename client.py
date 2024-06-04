@@ -1,4 +1,4 @@
-#ver 1.11
+#ver 1.13
 import requests
 import time
 import os
@@ -208,7 +208,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
 
 def send_all_disconnected_warning(port):
-    warning_url = f"http://103.77.166.69/api/warning/{port}/all/disconnection"
+    warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
         response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối. Đã thực hiện restart service.'})
         print(f"Sent all disconnected warning for port {port}")
