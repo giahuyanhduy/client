@@ -92,7 +92,7 @@ def send_warning(port, pump_id, warning_type, mabom):
     except requests.exceptions.RequestException as e:
         print(f"Error sending warning: {e}")
 
-def check_mabom(data, mabom_history, file_path, port, connection_status):
+def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
     current_time = datetime.now()
     all_disconnected = True  # Kiểm tra tất cả các vòi đều mất kết nối
 
@@ -103,7 +103,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
         mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
         if idcot is None or pump is None:
-            print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
+            #print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
 
         #print(f"Processed item: idcot={idcot}, status={statusnow}")
@@ -157,7 +157,6 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             mabom_history[pump_id] = []
 
         if mabom_history[pump_id] and isinstance(mabom_history[pump_id][-1], tuple) and mabom_history[pump_id][-1][0] == mabomtiep:
-            #print(f"No change in mabomtiep for pump ID {pump_id}, keeping the same value.")
             continue
         else:
             mabom_history[pump_id].append((mabomtiep, current_time.strftime('%Y-%m-%d %H:%M:%S')))
@@ -185,10 +184,9 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                 previous_mabom = mabom_entries[-2][0]
                 if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
                     if mabomtiep != previous_mabom + 1:
-                        # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
                         if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
                             print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
-                            send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi mã bơm kèm theo cảnh báo
+                            send_warning(port, pump_id, "nonsequential", mabomtiep)
                             call_daylaidulieu_api(pump_id)
                             mabom_history[pump_id].append({
                                 'type': 'nonsequential',
@@ -198,18 +196,24 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     else:
                         mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
-    if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()):
+    if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
         print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
         subprocess.run(['forever', 'restartall'])
         for conn in connection_status.values():
-            conn['restart_done'] = True  # Đánh dấu rằng đã thực hiện restart
+            conn['restart_done'] = True
+        send_all_disconnected_warning(port)
+        is_all_disconnect_restart[0] = True  # Đặt cờ khi tất cả các vòi đều mất kết nối và đã restartall
 
+    if not all_disconnected:
+        is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
+
+def send_all_disconnected_warning(port):
+    warning_url = f"http://103.77.166.69/api/warning/{port}/all/disconnection"
     try:
-        with open(file_path, 'w') as file:
-            json.dump(mabom_history, file, indent=4)
-            #print(f"Data successfully written to {file_path}")
-    except Exception as e:
-        print(f"Error writing to file {file_path}: {e}")
+        response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối. Đã thực hiện restart service.'})
+        print(f"Sent all disconnected warning for port {port}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending all disconnected warning: {e}")
 
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
@@ -231,16 +235,16 @@ def check_mabom_continuously(port, mabom_file_path):
             print(f"Error creating mabom history file: {e}")
 
     connection_status = {}
+    is_all_disconnect_restart = [False]  # Cờ cho biết nếu tất cả vòi đều mất kết nối và đã restartall
 
     while True:
         data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
         #print(data_from_url)
         if data_from_url:
-            check_mabom(data_from_url, mabom_history, mabom_file_path, port, connection_status)
+            check_mabom(data_from_url, mabom_history, mabom_file_path, port, connection_status, is_all_disconnect_restart)
         else:
             print("Failed to retrieve data from URL")
         time.sleep(2)
-        
 def send_data_continuously(port):
     while True:
         if check_getdata_status(port):
