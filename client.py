@@ -255,9 +255,7 @@ def send_data_continuously(port):
                 print("Data sent to Flask server")
             else:
                 print("Failed to retrieve data from URL")
-        else:
-            #print("getdata is Off")
-            continue
+      
         time.sleep(4)
 
 def main():
