@@ -1,4 +1,4 @@
-#ver 1.10
+#ver 1.11
 import requests
 import time
 import os
@@ -53,7 +53,7 @@ def check_getdata_status(port):
         response = requests.get(request_url)
         if response.status_code == 200:
             data = response.json()
-            print(f"Data from /api/request/{port}: {data}")
+            #print(f"Data from /api/request/{port}: {data}")
             if data.get('restart') == 'True':
                 print("Restart command received. Restarting system.")
                 subprocess.run(['sudo', 'reboot'])
@@ -106,9 +106,9 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
 
-        print(f"Processed item: idcot={idcot}, status={statusnow}")
-        print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
-        print(f"Processed item: idcot={idcot}, pump={pump}")
+        #print(f"Processed item: idcot={idcot}, status={statusnow}")
+        #print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
+        #print(f"Processed item: idcot={idcot}, pump={pump}")
 
         pump_id = str(idcot)
         mabomtiep = pump
@@ -157,7 +157,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             mabom_history[pump_id] = []
 
         if mabom_history[pump_id] and isinstance(mabom_history[pump_id][-1], tuple) and mabom_history[pump_id][-1][0] == mabomtiep:
-            print(f"No change in mabomtiep for pump ID {pump_id}, keeping the same value.")
+            #print(f"No change in mabomtiep for pump ID {pump_id}, keeping the same value.")
+            continue
         else:
             mabom_history[pump_id].append((mabomtiep, current_time.strftime('%Y-%m-%d %H:%M:%S')))
             if len(mabom_history[pump_id]) > 10:
@@ -206,10 +207,10 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
     try:
         with open(file_path, 'w') as file:
             json.dump(mabom_history, file, indent=4)
-            print(f"Data successfully written to {file_path}")
+            #print(f"Data successfully written to {file_path}")
     except Exception as e:
         print(f"Error writing to file {file_path}: {e}")
-        
+
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
         try:
@@ -251,7 +252,8 @@ def send_data_continuously(port):
             else:
                 print("Failed to retrieve data from URL")
         else:
-            print("getdata is Off")
+            #print("getdata is Off")
+            continue
         time.sleep(4)
 
 def main():
