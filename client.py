@@ -1,4 +1,4 @@
-#ver 1.07
+#ver 1.08
 import requests
 import time
 import os
@@ -104,7 +104,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
         if idcot is None or pump is None:
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
-        print(f"Processed item: idcot={idcot}, status={statusnow}")          
+
+        print(f"Processed item: idcot={idcot}, status={statusnow}")
         print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
         print(f"Processed item: idcot={idcot}, pump={pump}")
 
@@ -157,23 +158,25 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
 
         mabom_entries = [entry for entry in mabom_history[pump_id] if isinstance(entry, tuple)]
 
-        if len(mabom_entries) > 1:
-            previous_mabom = mabom_entries[-2][0]
-            if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
-                if mabomtiep != previous_mabom + 1:
-                    # Kiểm tra trạng thái của vòi là "sẵn sàng"
-                    if item.get('status') == 'sẵn sàng' and mabom_moinhat and mabom_moinhat != pump:
-                        connection_status[pump_id]['mismatch_count'] += 1
-                        print(f"Mã bơm không liên tiếp lần {connection_status[pump_id]['mismatch_count']} cho pump ID {pump_id}")
+        if statusnow == 'sẵn sàng':
+            if mabom_moinhat and mabom_moinhat != pump:
+                connection_status[pump_id]['mismatch_count'] += 1
+                print(f"Mã bơm không khớp lần {connection_status[pump_id]['mismatch_count']} cho pump ID {pump_id}: {mabom_moinhat} != {pump}")
 
-                        if connection_status[pump_id]['mismatch_count'] == 3:
-                            print(f"Pump ID {pump_id} có mã bơm không liên tiếp 3 lần. Thực hiện restartall.")
-                            subprocess.run(['forever', 'restartall'])
-                            time.sleep(3)
-                            call_daylaidulieu_api(pump_id)
-                            send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
-                            connection_status[pump_id]['mismatch_count'] = 0
-                    else:
+                if connection_status[pump_id]['mismatch_count'] == 3:
+                    print(f"Pump ID {pump_id} có mã bơm không khớp 3 lần. Thực hiện restartall.")
+                    subprocess.run(['forever', 'restartall'])
+                    time.sleep(3)
+                    call_daylaidulieu_api(pump_id)
+                    send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
+                    connection_status[pump_id]['mismatch_count'] = 0
+            else:
+                connection_status[pump_id]['mismatch_count'] = 0
+
+            if len(mabom_entries) > 1:
+                previous_mabom = mabom_entries[-2][0]
+                if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
+                    if mabomtiep != previous_mabom + 1:
                         # Chỉ gửi cảnh báo nếu mã bơm hiện tại khác với mã bơm đã cảnh báo trước đó
                         if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
                             print(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
@@ -184,8 +187,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                                 'time': current_time.strftime('%Y-%m-%d %H:%M:%S')
                             })
                             connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
-                else:
-                    mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
+                    else:
+                        mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
     try:
         with open(file_path, 'w') as file:
@@ -193,8 +196,6 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
             print(f"Data successfully written to {file_path}")
     except Exception as e:
         print(f"Error writing to file {file_path}: {e}")
-
-
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
         try:
