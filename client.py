@@ -1,4 +1,4 @@
-#ver 1.09
+#ver 1.10
 import requests
 import time
 import os
@@ -94,6 +94,7 @@ def send_warning(port, pump_id, warning_type, mabom):
 
 def check_mabom(data, mabom_history, file_path, port, connection_status):
     current_time = datetime.now()
+    all_disconnected = True  # Kiểm tra tất cả các vòi đều mất kết nối
 
     for item in data:
         idcot = item.get('id')
@@ -114,13 +115,17 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
 
         is_disconnected = item.get('isDisconnected', False)
 
+        if not is_disconnected:
+            all_disconnected = False  # Nếu bất kỳ vòi nào không mất kết nối, đặt cờ này thành False
+
         if pump_id not in connection_status:
             connection_status[pump_id] = {
                 'is_disconnected': is_disconnected,
                 'disconnect_time': current_time if is_disconnected else None,
                 'alert_sent': False,
                 'last_alerted_mabom': None,  # Thêm mục này để theo dõi mã bơm đã cảnh báo
-                'mismatch_count': 0  # Đếm số lần lệch
+                'mismatch_count': 0,  # Đếm số lần lệch
+                'restart_done': False  # Đánh dấu nếu đã thực hiện restart
             }
         else:
             if is_disconnected:
@@ -128,6 +133,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     connection_status[pump_id]['is_disconnected'] = True
                     connection_status[pump_id]['disconnect_time'] = current_time
                     connection_status[pump_id]['alert_sent'] = False
+                    connection_status[pump_id]['restart_done'] = False  # Reset cờ restart_done khi mất kết nối lần nữa
                 else:
                     if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                         if not connection_status[pump_id]['alert_sent']:
@@ -143,7 +149,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                         'disconnect_time': None,
                         'alert_sent': False,
                         'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),  # Giữ nguyên giá trị last_alerted_mabom
-                        'mismatch_count': connection_status[pump_id].get('mismatch_count', 0)  # Giữ nguyên giá trị mismatch_count
+                        'mismatch_count': connection_status[pump_id].get('mismatch_count', 0),  # Giữ nguyên giá trị mismatch_count
+                        'restart_done': connection_status[pump_id].get('restart_done', False)  # Giữ nguyên giá trị restart_done
                     }
 
         if pump_id not in mabom_history:
@@ -190,12 +197,19 @@ def check_mabom(data, mabom_history, file_path, port, connection_status):
                     else:
                         mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
+    if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()):
+        print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
+        subprocess.run(['forever', 'restartall'])
+        for conn in connection_status.values():
+            conn['restart_done'] = True  # Đánh dấu rằng đã thực hiện restart
+
     try:
         with open(file_path, 'w') as file:
             json.dump(mabom_history, file, indent=4)
             print(f"Data successfully written to {file_path}")
     except Exception as e:
         print(f"Error writing to file {file_path}: {e}")
+        
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
         try:
