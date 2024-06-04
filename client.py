@@ -1,4 +1,4 @@
-#ver 1.06
+#ver 1.07
 import requests
 import time
 import os
@@ -91,17 +91,20 @@ def send_warning(port, pump_id, warning_type, mabom):
         print(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}, mabom {mabom}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending warning: {e}")
+
 def check_mabom(data, mabom_history, file_path, port, connection_status):
     current_time = datetime.now()
 
     for item in data:
         idcot = item.get('id')
         pump = item.get('pump')  # Lấy giá trị pump phía ngoài
+        statusnow = item.get('status')
         mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
         if idcot is None or pump is None:
             print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
+        print(f"Processed item: idcot={idcot}, status={statusnow}")          
         print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
         print(f"Processed item: idcot={idcot}, pump={pump}")
 
