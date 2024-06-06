@@ -1,4 +1,4 @@
-#ver 1.24
+#ver 1.26
 import requests
 import time
 import os
@@ -11,12 +11,11 @@ from threading import Thread
 
 initial_delay = 60  # Thời gian trễ ban đầu (tính bằng giây)
 start_time = datetime.now()  # Lưu thời điểm bắt đầu chạy chương trình
-all_disconnected_time = None  # Thời gian bắt đầu ngắt kết nối cho toàn bộ hệ thống
 def get_port_from_file():
     try:
         with open('/opt/autorun', 'r') as file:
             content = file.read()
-            # Biểu thức chính quy để bắt đầu với 1 khoảng trắng và 4 ký tự số or không có khoảng trắng và 5 ký tự số
+            # Biểu thức chính quy để bắt đầu với 1 khoảng trắng and 4 ký tự số or không có khoảng trắng and 5 ký tự số
             match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
             if match:
                 port = match.group(1).strip()  # Xóa khoảng trắng ở đầu nếu có
@@ -137,7 +136,6 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                 else:
                     if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                         if not connection_status[pump_id]['alert_sent']:
-                            # Kiểm tra thời gian trễ ban đầu
                             if (current_time - start_time).total_seconds() > initial_delay:
                                 print(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
                                 send_warning(port, pump_id, "disconnection", mabomtiep)
@@ -204,26 +202,27 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                     else:
                         mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
-    # Kiểm tra thời gian ngắt kết nối cho tất cả vòi bơm
     if all_disconnected:
         if all_disconnected_time is None:
             all_disconnected_time = current_time
         if current_time - all_disconnected_time > timedelta(seconds=65):
             if not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
                 if lastRestartAll is None or (current_time - lastRestartAll) > timedelta(minutes=10):
-                    print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
-                    subprocess.run(['forever', 'restartall'])
-                    lastRestartAll = current_time
-                    for conn in connection_status.values():
-                        conn['restart_done'] = True
-                    send_all_disconnected_warning(port)
-                    is_all_disconnect_restart[0] = True
+                    if (current_time - start_time).total_seconds() > initial_delay:
+                        print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
+                        subprocess.run(['forever', 'restartall'])
+                        lastRestartAll = current_time
+                        for conn in connection_status.values():
+                            conn['restart_done'] = True
+                        send_all_disconnected_warning(port)
+                        is_all_disconnect_restart[0] = True
+                    else:
+                        print("Tất cả các vòi đều mất kết nối, nhưng trong thời gian trễ ban đầu.")
                 else:
                     print("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
     else:
         all_disconnected_time = None  # Reset thời gian ngắt kết nối cho toàn bộ hệ thống khi có ít nhất một vòi kết nối lại
         is_all_disconnect_restart[0] = False
-
 def send_all_disconnected_warning(port):
     warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
@@ -253,7 +252,7 @@ def check_mabom_continuously(port, mabom_file_path):
             print(f"Error creating mabom history file: {e}")
 
     connection_status = {}
-    is_all_disconnect_restart = [False]  # Cờ cho biết nếu tất cả vòi đều mất kết nối và đã restartall
+    is_all_disconnect_restart = [False]  # Cờ cho biết nếu tất cả vòi đều mất kết nối and đã restartall
 
     while True:
         data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
@@ -290,7 +289,7 @@ def main():
     script_dir = os.path.dirname(os.path.realpath(__file__))
     mabom_file_path = os.path.join(script_dir, 'mabom.json')
 
-    # Kiểm tra và tạo file mabom.json nếu chưa tồn tại
+    # Kiểm tra and tạo file mabom.json nếu chưa tồn tại
     if not os.path.exists(mabom_file_path):
         try:
             with open(mabom_file_path, 'w') as file:
