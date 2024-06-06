@@ -1,4 +1,4 @@
-#ver 1.23
+#ver 1.24
 import requests
 import time
 import os
@@ -96,7 +96,7 @@ lastRestartAll = None
 lastNonSequentialRestart = None
 
 def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
-    global lastRestartAll, lastNonSequentialRestart
+    global lastRestartAll, lastNonSequentialRestart, all_disconnected_time
     current_time = datetime.now()
     all_disconnected = True
 
@@ -203,22 +203,26 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                     else:
                         mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
-    if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
-        if lastRestartAll is None or (current_time - lastRestartAll) > timedelta(minutes=10):
-            print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
-            subprocess.run(['forever', 'restartall'])
-            lastRestartAll = current_time
-            for conn in connection_status.values():
-                conn['restart_done'] = True
-            send_all_disconnected_warning(port)
-            is_all_disconnect_restart[0] = True
-        else:
-            print("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
-
-    if not all_disconnected:
+    # Kiểm tra thời gian ngắt kết nối cho tất cả vòi bơm
+    if all_disconnected:
+        if all_disconnected_time is None:
+            all_disconnected_time = current_time
+        if current_time - all_disconnected_time > timedelta(seconds=65):
+            if not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
+                if lastRestartAll is None or (current_time - lastRestartAll) > timedelta(minutes=10):
+                    print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
+                    subprocess.run(['forever', 'restartall'])
+                    lastRestartAll = current_time
+                    for conn in connection_status.values():
+                        conn['restart_done'] = True
+                    send_all_disconnected_warning(port)
+                    is_all_disconnect_restart[0] = True
+                else:
+                    print("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
+    else:
+        all_disconnected_time = None  # Reset thời gian ngắt kết nối cho toàn bộ hệ thống khi có ít nhất một vòi kết nối lại
         is_all_disconnect_restart[0] = False
 
-        
 def send_all_disconnected_warning(port):
     warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
@@ -227,6 +231,7 @@ def send_all_disconnected_warning(port):
     except requests.exceptions.RequestException as e:
         print(f"Error sending all disconnected warning: {e}")
 
+        
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
         try:
