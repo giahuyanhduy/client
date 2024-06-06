@@ -1,4 +1,4 @@
-#ver 1.15
+#ver 1.17
 import requests
 import time
 import os
@@ -93,6 +93,7 @@ def send_warning(port, pump_id, warning_type, mabom):
         print(f"Error sending warning: {e}")
 
 def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
+    global lastRestartAll, lastNonSequentialRestart
     current_time = datetime.now()
     all_disconnected = True  # Kiểm tra tất cả các vòi đều mất kết nối
 
@@ -102,7 +103,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         statusnow = item.get('status')
         mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
-        if idcot is None or pump is None:
+        if idcot is None hoặc pump is None:
             #print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
 
@@ -171,12 +172,16 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                 print(f"Mã bơm không khớp lần {connection_status[pump_id]['mismatch_count']} cho pump ID {pump_id}: {mabom_moinhat} != {pump}")
 
                 if connection_status[pump_id]['mismatch_count'] == 3:
-                    print(f"Pump ID {pump_id} có mã bơm không khớp 3 lần. Thực hiện restartall.")
-                    subprocess.run(['forever', 'restartall'])
-                    time.sleep(3)
-                    call_daylaidulieu_api(pump_id)
-                    send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
-                    connection_status[pump_id]['mismatch_count'] = 0
+                    if lastNonSequentialRestart is None or (current_time - lastNonSequentialRestart) > timedelta(minutes=10):
+                        print(f"Pump ID {pump_id} có mã bơm không khớp 3 lần. Thực hiện restartall.")
+                        subprocess.run(['forever', 'restartall'])
+                        lastNonSequentialRestart = current_time
+                        time.sleep(3)
+                        call_daylaidulieu_api(pump_id)
+                        send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
+                        connection_status[pump_id]['mismatch_count'] = 0
+                    else:
+                        print("Phát hiện mã bơm không liên tiếp, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
             else:
                 connection_status[pump_id]['mismatch_count'] = 0
 
@@ -194,19 +199,23 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                             })
                             connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
                     else:
-                        mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
+                        mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] nếu not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
     if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
-        print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
-        subprocess.run(['forever', 'restartall'])
-        for conn in connection_status.values():
-            conn['restart_done'] = True
-        send_all_disconnected_warning(port)
-        is_all_disconnect_restart[0] = True  # Đặt cờ khi tất cả các vòi đều mất kết nối và đã restartall
+        if lastRestartAll is None hoặc (current_time - lastRestartAll) > timedelta(minutes=10):
+            print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
+            subprocess.run(['forever', 'restartall'])
+            lastRestartAll = current_time
+            for conn in connection_status.values():
+                conn['restart_done'] = True
+            send_all_disconnected_warning(port)
+            is_all_disconnect_restart[0] = True  # Đặt cờ khi tất cả các vòi đều mất kết nối và đã restartall
+        else:
+            print("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
 
     if not all_disconnected:
         is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
-
+        
 def send_all_disconnected_warning(port):
     warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
