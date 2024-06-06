@@ -74,7 +74,15 @@ RestartSec=5
 WantedBy=multi-user.target
 EOL
 
-# Kích hoạt service
+# Kiểm tra xem tệp dịch vụ đã được tạo thành công chưa
+if [ -f \$SERVICE_FILE ]; then
+    echo "Service file created successfully at \$SERVICE_FILE"
+else
+    echo "Failed to create service file at \$SERVICE_FILE"
+    exit 1
+fi
+
+# Kích hoạt và khởi động dịch vụ
 sudo systemctl daemon-reload
 sudo systemctl enable client.service
 sudo systemctl start client.service
