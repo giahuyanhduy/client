@@ -1,4 +1,4 @@
-#ver 1.19
+#ver 1.20
 import requests
 import time
 import os
@@ -199,10 +199,10 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                             })
                             connection_status[pump_id]['last_alerted_mabom'] = mabomtiep
                     else:
-                        mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] nếu not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
+                        mabom_history[pump_id] = [entry for entry in mabom_history[pump_id] if not (isinstance(entry, dict) and entry.get('type') == 'nonsequential')]
 
     if all_disconnected and not any(conn['restart_done'] for conn in connection_status.values()) and not is_all_disconnect_restart[0]:
-        if lastRestartAll is None hoặc (current_time - lastRestartAll) > timedelta(minutes=10):
+        if lastRestartAll is None or (current_time - lastRestartAll) > timedelta(minutes=10):
             print("Tất cả các vòi đều mất kết nối. Thực hiện restartall.")
             subprocess.run(['forever', 'restartall'])
             lastRestartAll = current_time
