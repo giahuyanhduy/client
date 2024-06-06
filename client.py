@@ -1,4 +1,4 @@
-#ver 1.21
+#ver 1.23
 import requests
 import time
 import os
@@ -9,12 +9,13 @@ from datetime import datetime, timedelta
 from threading import Thread
 
 
-
+initial_delay = 60  # Thời gian trễ ban đầu (tính bằng giây)
+start_time = datetime.now()  # Lưu thời điểm bắt đầu chạy chương trình
 def get_port_from_file():
     try:
         with open('/opt/autorun', 'r') as file:
             content = file.read()
-            # Biểu thức chính quy để bắt đầu với 1 khoảng trắng và 4 ký tự số hoặc không có khoảng trắng và 5 ký tự số
+            # Biểu thức chính quy để bắt đầu với 1 khoảng trắng và 4 ký tự số or không có khoảng trắng và 5 ký tự số
             match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
             if match:
                 port = match.group(1).strip()  # Xóa khoảng trắng ở đầu nếu có
@@ -94,17 +95,16 @@ def send_warning(port, pump_id, warning_type, mabom):
 lastRestartAll = None
 lastNonSequentialRestart = None
 
-
 def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
     global lastRestartAll, lastNonSequentialRestart
     current_time = datetime.now()
-    all_disconnected = True  # Kiểm tra tất cả các vòi đều mất kết nối
+    all_disconnected = True
 
     for item in data:
         idcot = item.get('id')
-        pump = item.get('pump')  # Lấy giá trị pump phía ngoài
+        pump = item.get('pump')
         statusnow = item.get('status')
-        mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
+        mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')
 
         if idcot is None or pump is None:
             continue
@@ -115,16 +115,16 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         is_disconnected = item.get('isDisconnected', False)
 
         if not is_disconnected:
-            all_disconnected = False  # Nếu bất kỳ vòi nào không mất kết nối, đặt cờ này thành False
+            all_disconnected = False
 
         if pump_id not in connection_status:
             connection_status[pump_id] = {
                 'is_disconnected': is_disconnected,
                 'disconnect_time': current_time if is_disconnected else None,
                 'alert_sent': False,
-                'last_alerted_mabom': None,  # Thêm mục này để theo dõi mã bơm đã cảnh báo
-                'mismatch_count': 0,  # Đếm số lần lệch
-                'restart_done': False  # Đánh dấu nếu đã thực hiện restart
+                'last_alerted_mabom': None,
+                'mismatch_count': 0,
+                'restart_done': False
             }
         else:
             if is_disconnected:
@@ -132,13 +132,17 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                     connection_status[pump_id]['is_disconnected'] = True
                     connection_status[pump_id]['disconnect_time'] = current_time
                     connection_status[pump_id]['alert_sent'] = False
-                    connection_status[pump_id]['restart_done'] = False  # Reset cờ restart_done khi mất kết nối lần nữa
+                    connection_status[pump_id]['restart_done'] = False
                 else:
                     if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                         if not connection_status[pump_id]['alert_sent']:
-                            print(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
-                            send_warning(port, pump_id, "disconnection", mabomtiep)
-                            connection_status[pump_id]['alert_sent'] = True
+                            # Kiểm tra thời gian trễ ban đầu
+                            if (current_time - start_time).total_seconds() > initial_delay:
+                                print(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
+                                send_warning(port, pump_id, "disconnection", mabomtiep)
+                                connection_status[pump_id]['alert_sent'] = True
+                            else:
+                                print(f"Pump ID {pump_id} disconnected but within initial delay period.")
             else:
                 if connection_status[pump_id]['is_disconnected']:
                     if current_time - connection_status[pump_id]['disconnect_time'] <= timedelta(seconds=65):
@@ -147,9 +151,9 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                         'is_disconnected': False,
                         'disconnect_time': None,
                         'alert_sent': False,
-                        'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),  # Giữ nguyên giá trị last_alerted_mabom
-                        'mismatch_count': connection_status[pump_id].get('mismatch_count', 0),  # Giữ nguyên giá trị mismatch_count
-                        'restart_done': connection_status[pump_id].get('restart_done', False)  # Giữ nguyên giá trị restart_done
+                        'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),
+                        'mismatch_count': connection_status[pump_id].get('mismatch_count', 0),
+                        'restart_done': connection_status[pump_id].get('restart_done', False)
                     }
 
         if pump_id not in mabom_history:
@@ -176,7 +180,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                         lastNonSequentialRestart = current_time
                         time.sleep(3)
                         call_daylaidulieu_api(pump_id)
-                        send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
+                        send_warning(port, pump_id, "nonsequential", mabomtiep)
                         connection_status[pump_id]['mismatch_count'] = 0
                     else:
                         print("Phát hiện mã bơm không liên tiếp, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
@@ -207,14 +211,14 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
             for conn in connection_status.values():
                 conn['restart_done'] = True
             send_all_disconnected_warning(port)
-            is_all_disconnect_restart[0] = True  # Đặt cờ khi tất cả các vòi đều mất kết nối và đã restartall
+            is_all_disconnect_restart[0] = True
         else:
             print("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
 
     if not all_disconnected:
-        is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
+        is_all_disconnect_restart[0] = False
 
-
+        
 def send_all_disconnected_warning(port):
     warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
