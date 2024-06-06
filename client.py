@@ -11,6 +11,7 @@ from threading import Thread
 
 initial_delay = 60  # Thời gian trễ ban đầu (tính bằng giây)
 start_time = datetime.now()  # Lưu thời điểm bắt đầu chạy chương trình
+all_disconnected_time = None  # Thời gian bắt đầu ngắt kết nối cho toàn bộ hệ thống
 def get_port_from_file():
     try:
         with open('/opt/autorun', 'r') as file:
