@@ -58,7 +58,6 @@ EOL
 chmod +x /home/startup.sh
 
 # Tạo file service cho systemd
-SERVICE_FILE="/etc/systemd/system/client.service"
 sudo bash -c 'cat <<EOL > /etc/systemd/system/client.service
 [Unit]
 Description=Run client.py from GitHub on startup
