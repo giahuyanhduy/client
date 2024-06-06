@@ -46,7 +46,7 @@ for ((i=1; i<=\$RETRY_COUNT; i++)); do
 done
 
 # Chạy client.py
-if sudo python3 \$CLIENT_FILE; then
+if  python3 \$CLIENT_FILE; then
     echo "Successfully ran client.py at \$(date)" >> \$LOG_FILE
 else
     echo "Failed to run client.py at \$(date)" >> \$LOG_FILE
