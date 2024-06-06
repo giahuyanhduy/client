@@ -1,4 +1,4 @@
-#ver 1.26
+#ver 1.28
 import requests
 import time
 import os
