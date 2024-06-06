@@ -1,4 +1,4 @@
-#ver 1.20
+#ver 1.21
 import requests
 import time
 import os
@@ -91,6 +91,9 @@ def send_warning(port, pump_id, warning_type, mabom):
         print(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}, mabom {mabom}")
     except requests.exceptions.RequestException as e:
         print(f"Error sending warning: {e}")
+lastRestartAll = None
+lastNonSequentialRestart = None
+
 
 def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
     global lastRestartAll, lastNonSequentialRestart
@@ -104,12 +107,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
         if idcot is None or pump is None:
-            #print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
-
-        #print(f"Processed item: idcot={idcot}, status={statusnow}")
-        #print(f"Processed item: idcot={idcot}, pump(mbmn)={mabom_moinhat}")
-        #print(f"Processed item: idcot={idcot}, pump={pump}")
 
         pump_id = str(idcot)
         mabomtiep = pump
@@ -215,7 +213,8 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
 
     if not all_disconnected:
         is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
-        
+
+
 def send_all_disconnected_warning(port):
     warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
     try:
