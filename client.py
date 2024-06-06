@@ -103,7 +103,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         statusnow = item.get('status')
         mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
 
-        if idcot is None hoặc pump is None:
+        if idcot is None or pump is None:
             #print(f"Skipping item because 'idcot' or 'pump' is None. idcot: {idcot}, pump: {pump}")
             continue
 
