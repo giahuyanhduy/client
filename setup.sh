@@ -59,7 +59,7 @@ chmod +x /home/startup.sh
 
 # Tạo file service cho systemd
 SERVICE_FILE="/etc/systemd/system/client.service"
-cat <<EOL | sudo tee \$SERVICE_FILE > /dev/null
+sudo bash -c 'cat <<EOL > /etc/systemd/system/client.service
 [Unit]
 Description=Run client.py from GitHub on startup
 After=network.target
@@ -72,13 +72,13 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-EOL
+EOL'
 
 # Kiểm tra xem tệp dịch vụ đã được tạo thành công chưa
-if [ -f \$SERVICE_FILE ]; then
-    echo "Service file created successfully at \$SERVICE_FILE"
+if [ -f /etc/systemd/system/client.service ]; then
+    echo "Service file created successfully at /etc/systemd/system/client.service"
 else
-    echo "Failed to create service file at \$SERVICE_FILE"
+    echo "Failed to create service file at /etc/systemd/system/client.service"
     exit 1
 fi
 
