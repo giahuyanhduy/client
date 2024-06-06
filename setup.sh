@@ -59,7 +59,7 @@ chmod +x /home/startup.sh
 
 # Tạo file service cho systemd
 SERVICE_FILE="/etc/systemd/system/client.service"
-cat <<EOL | sudo tee ${SERVICE_FILE} > /dev/null
+cat <<EOL |  tee ${SERVICE_FILE} > /dev/null
 [Unit]
 Description=Run client.py from GitHub on startup
 After=network.target
@@ -83,11 +83,11 @@ else
 fi
 
 # Kích hoạt và khởi động dịch vụ
-sudo systemctl daemon-reload
-sudo systemctl enable client.service
-sudo systemctl start client.service
+systemctl daemon-reload
+systemctl enable client.service
+systemctl start client.service
 
 # Kiểm tra trạng thái của dịch vụ
-sudo systemctl status client.service
+systemctl status client.service
 
 echo "Setup complete. client.service has been created and started."
