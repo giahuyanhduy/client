@@ -1,4 +1,4 @@
-#ver 1.21
+#ver 1.23 / thêm lấy mã bơm 
 import requests
 import time
 import os
@@ -53,7 +53,11 @@ def check_getdata_status(port):
         response = requests.get(request_url)
         if response.status_code == 200:
             data = response.json()
-            #print(f"Data from /api/request/{port}: {data}")
+            # Kiểm tra và thực hiện hành động dựa trên giá trị của laymabom
+            laymabom = data.get('laymabom')
+            if laymabom and laymabom != 'Off':
+                print(f"laymabom value received: {laymabom}. Calling daylaidulieu API.")
+                call_daylaidulieu_api(laymabom)
             if data.get('restart') == 'True':
                 print("Restart command received. Restarting system.")
                 subprocess.run(['sudo', 'reboot'])
@@ -71,8 +75,6 @@ def check_getdata_status(port):
     except requests.exceptions.RequestException as e:
         print(f"Error checking getdata status: {e}")
         return False
-
-
 
 
 def call_daylaidulieu_api(pump_id):
