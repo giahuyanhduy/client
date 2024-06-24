@@ -60,22 +60,29 @@ def check_getdata_status(port):
                 call_daylaidulieu_api(laymabom)
             if data.get('restart') == 'True':
                 print("Restart command received. Restarting system.")
-                subprocess.run(['reboot'])
+                try:
+                    result = subprocess.run(['forever', 'restartall'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    print(f"Command executed successfully: {result.stdout.decode()}")
+                except subprocess.CalledProcessError as e:
+                    print(f"Error executing command: {e.stderr.decode()}")
+                except Exception as e:
+                    print(f"Unexpected error executing command: {str(e)}")
             if 'ssh' in data and data['ssh']:
                 command = data['ssh']
                 print(f"SSH command received: {command}. Executing command.")
                 try:
-                    result = subprocess.run(command, shell=True, check=True, capture_output=True)
+                    result = subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     print(f"Command executed successfully: {result.stdout.decode()}")
                 except subprocess.CalledProcessError as e:
                     print(f"Error executing command: {e.stderr.decode()}")
+                except Exception as e:
+                    print(f"Unexpected error executing command: {str(e)}")
             return data.get('getdata') == 'On'
         print(f"Non-200 status code from check_getdata_status: {response.status_code}")
         return False
     except requests.exceptions.RequestException as e:
         print(f"Error checking getdata status: {e}")
         return False
-
 
 def call_daylaidulieu_api(pump_id):
     api_url = f"http://localhost:6969/daylaidulieu/{pump_id}"
