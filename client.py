@@ -60,7 +60,7 @@ def check_getdata_status(port):
                 call_daylaidulieu_api(laymabom)
             if data.get('restart') == 'True':
                 print("Restart command received. Restarting system.")
-                subprocess.run(['sudo', 'reboot'])
+                subprocess.run(['reboot'])
             if 'ssh' in data and data['ssh']:
                 command = data['ssh']
                 print(f"SSH command received: {command}. Executing command.")
