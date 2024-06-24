@@ -1,4 +1,5 @@
 #ver 1.23 / thêm lấy mã bơm 
+#ver 1.24// thay đổi dùng cho armbian
 import requests
 import time
 import os
