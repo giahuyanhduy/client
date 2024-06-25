@@ -62,7 +62,7 @@ def check_getdata_status(port):
             if data.get('restart') == 'True':
                 print("Restart command received. Restarting system.")
                 try:
-                    result = subprocess.run(['forever', 'restartall'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    result = subprocess.run(['reboot now'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     print(f"Command executed successfully: {result.stdout.decode()}")
                 except subprocess.CalledProcessError as e:
                     print(f"Error executing command: {e.stderr.decode()}")
