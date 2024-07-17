@@ -1,6 +1,7 @@
 #ver 1.23 / thêm lấy mã bơm 
 #ver 1.24// thay đổi dùng cho armbian
 #ver 1.25 thay đổi reboot now
+#ver 1.26// run ssh direct
 import requests
 import time
 import os
@@ -73,8 +74,8 @@ def check_getdata_status(port):
                 command = data['ssh']
                 print(f"SSH command received: {command}. Executing command.")
                 try:
-                    result = subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    print(f"Command executed successfully: {result.stdout.decode()}")
+                    subprocess.Popen(command, shell=True)
+                    print(f"Command execution started: {command}")
                 except subprocess.CalledProcessError as e:
                     print(f"Error executing command: {e.stderr.decode()}")
                 except Exception as e:
