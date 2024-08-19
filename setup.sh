@@ -6,14 +6,6 @@ CLIENT_FILE="/home/client.py"
 # URL của file client.py trên GitHub
 GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py"
 
-# Kiểm tra xem client.service có đang chạy không
-if systemctl is-active --quiet client.service; then
-    echo "client.service is running. Stopping the service..."
-    systemctl stop client.service
-else
-    echo "client.service is not running."
-fi
-
 # Tạo file startup.sh với logic mới (bao gồm git pull và curl để tải file client.py)
 cat <<EOL > /home/startup.sh
 #!/bin/bash
