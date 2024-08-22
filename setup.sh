@@ -1,24 +1,31 @@
 #!/bin/bash
 #123
-# Đường dẫn đến file client.py
-CLIENT_FILE="/home/client.py"
+# Đường dẫn đến thư mục chứa repository Git
+REPO_DIR="/home/client-repo"
 
 # URL của file client.py trên GitHub
 GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py"
 
-# Tạo file startup.sh với logic mới (bao gồm git pull và curl để tải file client.py)
-cat <<EOL > /home/startup.sh
+# Tạo thư mục nếu chưa tồn tại
+mkdir -p $REPO_DIR
+
+# Clone repository vào thư mục con nếu chưa được clone
+if [ ! -d "$REPO_DIR/.git" ]; then
+    git clone https://github.com/giahuyanhduy/client.git $REPO_DIR
+fi
+
+# Tạo file startup.sh với logic mới
+cat <<EOL > $REPO_DIR/startup.sh
 #!/bin/bash
 
-LOG_FILE="/home/startup.log"
-REPO_DIR="/home"
-CLIENT_FILE="/home/client.py"
+LOG_FILE="$REPO_DIR/startup.log"
+CLIENT_FILE="$REPO_DIR/client.py"
 GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py"
 
 # Ghi thời gian bắt đầu vào log
 echo "Starting startup script at \$(date)" >> \$LOG_FILE
 
-# Di chuyển vào thư mục gốc
+# Di chuyển vào thư mục chứa repository
 cd \$REPO_DIR
 
 # Pull các thay đổi mới nhất từ GitHub
@@ -52,7 +59,7 @@ fi
 EOL
 
 # Cấp quyền thực thi cho startup.sh
-chmod +x /home/startup.sh
+chmod +x $REPO_DIR/startup.sh
 
 # Tạo file service cho systemd
 SERVICE_FILE="/etc/systemd/system/client.service"
@@ -63,7 +70,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash /home/startup.sh
+ExecStart=/bin/bash $REPO_DIR/startup.sh
 Restart=on-failure
 RestartSec=5
 
