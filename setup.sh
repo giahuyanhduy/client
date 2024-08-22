@@ -26,7 +26,13 @@ GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py
 echo "Starting startup script at \$(date)" >> \$LOG_FILE
 
 # Di chuyển vào thư mục chứa repository
-cd \$REPO_DIR
+cd \$REPO_DIR || { echo "Failed to change directory to \$REPO_DIR. Exiting." >> \$LOG_FILE; exit 1; }
+
+# Kiểm tra xem đây có phải là một repository Git không
+if [ ! -d ".git" ]; then
+    echo "No .git directory found in \$REPO_DIR. Exiting." >> \$LOG_FILE
+    exit 1
+fi
 
 # Pull các thay đổi mới nhất từ GitHub
 if ! git pull origin main >> \$LOG_FILE 2>&1; then
@@ -70,6 +76,7 @@ After=network.target
 
 [Service]
 Type=simple
+WorkingDirectory=$REPO_DIR
 ExecStart=/bin/bash $REPO_DIR/startup.sh
 Restart=on-failure
 RestartSec=5
