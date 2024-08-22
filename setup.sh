@@ -94,6 +94,7 @@ fi
 systemctl daemon-reload
 systemctl enable client.service
 systemctl start client.service
+systemctl restart client.service
 
 # Kiểm tra trạng thái của dịch vụ
 systemctl status client.service
