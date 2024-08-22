@@ -1,5 +1,5 @@
 #!/bin/bash
-#123
+#1.12 FIX
 # Đường dẫn đến thư mục chứa repository Git
 REPO_DIR="/home/client-repo"
 
@@ -24,9 +24,6 @@ GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py
 
 # Ghi thời gian bắt đầu vào log
 echo "Starting startup script at \$(date)" >> \$LOG_FILE
-
-# Di chuyển vào thư mục chứa repository
-cd \$REPO_DIR || { echo "Failed to change directory to \$REPO_DIR. Exiting." >> \$LOG_FILE; exit 1; }
 
 # Kiểm tra xem đây có phải là một repository Git không
 if [ ! -d ".git" ]; then
