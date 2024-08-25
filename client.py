@@ -1,3 +1,4 @@
+#TestPULL
 #ver 1.23 / thêm lấy mã bơm 
 #ver 1.24// thay đổi dùng cho armbian
 #ver 1.25 thay đổi reboot now
