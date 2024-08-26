@@ -5,6 +5,7 @@
 #ver 1.25 thay đổi reboot now
 #ver 1.26// run ssh direct
 #ver 1.27// import log
+#ver 1.28 lấy version Phase
 import requests
 import time
 import os
@@ -19,6 +20,21 @@ from threading import Thread
 logging.basicConfig(filename='client_log.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
 
+def get_version_from_js():
+    possible_paths = [
+        '/home/Phase_3/GasController.js',
+        '/home/giang/Phase_3/GasController.js'
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            with open(path, 'r') as file:
+                content = file.read()
+                match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
+                if match:
+                    return match.group(1)
+    
+    return "1.0"  # Giá trị mặc định nếu không tìm thấy file hoặc không tìm thấy version
 
 def get_port_from_file():
     try:
@@ -55,8 +71,9 @@ def send_data_to_flask(data, port):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending data to Flask server: {e}")
 
-def check_getdata_status(port):
-    request_url = f"http://103.77.166.69/api/request/{port}"
+def check_getdata_status(port, version):
+    # Thay đổi URL để bao gồm cả port và version
+    request_url = f"http://103.77.166.69/api/request/{port},{version}"
     try:
         response = requests.get(request_url, timeout=10)
         if response.status_code == 200:
@@ -273,17 +290,16 @@ def check_mabom_continuously(port, mabom_file_path):
         else:
             print("Failed to retrieve data from URL")
         time.sleep(2)
-def send_data_continuously(port):
+
+def send_data_continuously(port, version):
     while True:
-        if check_getdata_status(port):
+        if check_getdata_status(port, version):  # Đảm bảo truyền version vào đây
             data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
-            #print("Data from URL:", data_from_url)
             if data_from_url:
                 send_data_to_flask(data_from_url, port)
                 print("Data sent to Flask server")
             else:
                 print("Failed to retrieve data from URL")
-      
         else:
             print("getdata is Off")
         time.sleep(4)
@@ -295,7 +311,8 @@ def main():
         return
     
     print(f"Using port: {port}")
-
+    version = get_version_from_js()
+    print(f"Using version: {version}")
     # Đảm bảo rằng mabom_file_path là đường dẫn đầy đủ
     script_dir = os.path.dirname(os.path.realpath(__file__))
     mabom_file_path = os.path.join(script_dir, 'mabom.json')
@@ -315,6 +332,6 @@ def main():
     mabom_thread.start()
 
     # Run data sending in the main thread
-    send_data_continuously(port)
+    send_data_continuously(port, version)  # Truyền cả port và version
 if __name__ == "__main__":
     main()
