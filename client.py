@@ -1,11 +1,7 @@
-#TestPULL
-#pulltest
-#ver 1.23 / thêm lấy mã bơm 
-#ver 1.24// thay đổi dùng cho armbian
-#ver 1.25 thay đổi reboot now
-#ver 1.26// run ssh direct
+
 #ver 1.27// import log
 #ver 1.28 lấy version Phase
+#ver 1.29 tăng thời gian request từ 4s lên 8s
 import requests
 import time
 import os
@@ -302,7 +298,7 @@ def send_data_continuously(port, version):
                 print("Failed to retrieve data from URL")
         else:
             print("getdata is Off")
-        time.sleep(4)
+        time.sleep(8)
 
 def main():
     port = get_port_from_file()
