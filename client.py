@@ -298,7 +298,7 @@ def send_data_continuously(port, version):
                 print("Failed to retrieve data from URL")
         else:
             print("getdata is Off")
-        time.sleep(8)
+        time.sleep(6)
 
 def main():
     port = get_port_from_file()
