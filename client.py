@@ -62,7 +62,7 @@ def get_data_from_url(url):
 def send_data_to_flask(data, port):
     flask_url = f"http://103.77.166.69/api/receive_data/{port}"
     try:
-        response = requests.post(flask_url, json=data, timeout=20)
+        response = requests.post(flask_url, json=data, timeout=10)
         logging.info(f"Data sent to Flask server. Status Code: {response.status_code}")
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending data to Flask server: {e}")
