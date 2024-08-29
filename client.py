@@ -1,7 +1,7 @@
 
 #ver 1.27// import log
 #ver 1.28 lấy version Phase
-#ver 1.29 tăng thời gian request từ 4s lên 8s
+#ver 1.29 tăng thời gian request từ 4s lên 8s, timeout request từ 10s lên 60s
 import requests
 import time
 import os
@@ -62,7 +62,7 @@ def get_data_from_url(url):
 def send_data_to_flask(data, port):
     flask_url = f"http://103.77.166.69/api/receive_data/{port}"
     try:
-        response = requests.post(flask_url, json=data, timeout=10)
+        response = requests.post(flask_url, json=data, timeout=60)
         logging.info(f"Data sent to Flask server. Status Code: {response.status_code}")
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending data to Flask server: {e}")
