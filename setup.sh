@@ -9,6 +9,31 @@ GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py
 # Tạo thư mục nếu chưa tồn tại
 mkdir -p $REPO_DIR
 
+# Cài đặt python3-pip nếu chưa được cài
+if ! command -v pip3 &> /dev/null; then
+    echo "python3-pip not found. Installing..."
+    apt-get update
+    apt-get install -y python3-pip
+    if [ $? -ne 0 ]; then
+        echo "Failed to install python3-pip. Exiting."
+        exit 1
+    fi
+else
+    echo "python3-pip is already installed."
+fi
+
+# Cài đặt thư viện requests
+if ! pip3 show requests &> /dev/null; then
+    echo "Installing requests library..."
+    pip3 install requests
+    if [ $? -ne 0 ]; then
+        echo "Failed to install requests. Exiting."
+        exit 1
+    fi
+else
+    echo "requests library is already installed."
+fi
+
 # Clone repository vào thư mục con nếu chưa được clone
 if [ ! -d "$REPO_DIR/.git" ]; then
     git clone https://github.com/giahuyanhduy/client.git $REPO_DIR
