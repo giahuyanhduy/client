@@ -4,6 +4,7 @@
 #ver 1.29 tăng thời gian request từ 4s lên 8s, timeout request từ 10s lên 60s
 #ver 1.30 thêm random 4 đến 8s
 #ver 1.31 thay server http://14.225.192.65/
+#ver 1.32 thêm get macid
 import requests
 import time
 import os
@@ -70,9 +71,9 @@ def send_data_to_flask(data, port):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending data to Flask server: {e}")
 
-def check_getdata_status(port, version):
+def check_getdata_status(port, version,mac):
     # Thay đổi URL để bao gồm cả port và version
-    request_url = f"http://14.225.192.65/api/request/{port},{version}"
+    request_url = f"http://14.225.192.65/api/request/{port},{version},{mac}"
     try:
         response = requests.get(request_url, timeout=10)
         if response.status_code == 200:
@@ -293,9 +294,9 @@ def check_mabom_continuously(port, mabom_file_path):
 def random_sleep_time():
     return random.uniform(4, 8)
 
-def send_data_continuously(port, version):
+def send_data_continuously(port, version,mac):
     while True:
-        if check_getdata_status(port, version):  # Đảm bảo truyền version vào đây
+        if check_getdata_status(port, version,mac):  # Đảm bảo truyền version vào đây
             data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
             if data_from_url:
                 send_data_to_flask(data_from_url, port)
@@ -307,13 +308,24 @@ def send_data_continuously(port, version):
         
         sleep_duration = random_sleep_time()
         time.sleep(sleep_duration)
-
+def get_mac():
+    try:
+        result = subprocess.check_output("ifconfig", shell=True).decode()
+        mac_match = re.search(r"ether ([0-9a-fA-F:]+)", result)
+        if mac_match:
+            return mac_match.group(1)
+    except Exception as e:
+        print(f"Lỗi lấy MAC Address: {e}")
+    return "00:00:00:00:00:00"  # MAC mặc định nếu lỗi
 def main():
     port = get_port_from_file()
     if not port:
         print("No port found. Exiting.")
         return
-    
+    mac = get_mac()
+    if not mac:
+        print("No mac found. Exiting.")
+        return
     print(f"Using port: {port}")
     version = get_version_from_js()
     print(f"Using version: {version}")
@@ -336,6 +348,6 @@ def main():
     mabom_thread.start()
 
     # Run data sending in the main thread
-    send_data_continuously(port, version)  # Truyền cả port và version
+    send_data_continuously(port, version,mac)  # Truyền cả port và version
 if __name__ == "__main__":
     main()
