@@ -62,7 +62,7 @@ def get_data_from_url(url):
         return None
 
 def send_data_to_flask(data, port):
-    flask_url = f"http://103.77.166.69/api/receive_data/{port}"
+    flask_url = f"http://14.225.192.65/api/receive_data/{port}"
     try:
         response = requests.post(flask_url, json=data, timeout=10)
         logging.info(f"Data sent to Flask server. Status Code: {response.status_code}")
@@ -71,7 +71,7 @@ def send_data_to_flask(data, port):
 
 def check_getdata_status(port, version):
     # Thay đổi URL để bao gồm cả port và version
-    request_url = f"http://103.77.166.69/api/request/{port},{version}"
+    request_url = f"http://14.225.192.65/api/request/{port},{version}"
     try:
         response = requests.get(request_url, timeout=10)
         if response.status_code == 200:
@@ -117,7 +117,7 @@ def call_daylaidulieu_api(pump_id):
 
 
 def send_warning(port, pump_id, warning_type, mabom):
-    warning_url = f"http://103.77.166.69/api/warning/{port}/{pump_id}/{warning_type}"
+    warning_url = f"http://14.225.192.65/api/warning/{port}/{pump_id}/{warning_type}"
     try:
         response = requests.post(warning_url, json={'mabom': mabom}, timeout=10)
         logging.info(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}, mabom {mabom}")
@@ -251,7 +251,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
         logging.error(f"Error in check_mabom: {e}")
 
 def send_all_disconnected_warning(port):
-    warning_url = f"http://103.77.166.69/api/warning/{port}/all/all_disconnection"
+    warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
     try:
         response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối. Đã thực hiện restart service.'})
         print(f"Sent all disconnected warning for port {port}")
