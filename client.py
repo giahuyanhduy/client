@@ -3,6 +3,7 @@
 #ver 1.28 lấy version Phase
 #ver 1.29 tăng thời gian request từ 4s lên 8s, timeout request từ 10s lên 60s
 #ver 1.30 thêm random 4 đến 8s
+#ver 1.31 thay server http://14.225.192.65/
 import requests
 import time
 import os
