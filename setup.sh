@@ -1,10 +1,14 @@
 #!/bin/bash
-#1.12 FIX
+# 1.12 FIX
 # Đường dẫn đến thư mục chứa repository Git
 REPO_DIR="/home/client-repo"
 
 # URL của file client.py trên GitHub
 GITHUB_URL="https://raw.githubusercontent.com/giahuyanhduy/client/main/client.py"
+
+# Đồng bộ thời gian hệ thống trước khi làm bất cứ điều gì
+echo "Syncing system time with Google's server..."
+date -s "$(curl -s --head http://google.com | grep ^Date: | sed 's/Date: //g')"
 
 # Tạo thư mục nếu chưa tồn tại
 mkdir -p $REPO_DIR
@@ -22,19 +26,15 @@ else
     echo "python3-pip is already installed."
 fi
 
-# Cài đặt thư viện requests
-if ! pip3 show requests &> /dev/null; then
-    echo "Installing requests library..."
-    pip3 install requests
-    if [ $? -ne 0 ]; then
-        echo "Failed to install requests. Exiting."
-        exit 1
-    fi
-else
-    echo "requests library is already installed."
+# Cài đặt thư viện Python cần thiết
+echo "Installing required Python libraries..."
+pip3 install --no-cache-dir requests urllib3 certifi charset_normalizer chardet
+if [ $? -ne 0 ]; then
+    echo "Failed to install required Python libraries. Exiting."
+    exit 1
 fi
 
-# Clone repository vào thư mục con nếu chưa được clone
+# Clone repository vào thư mục nếu chưa được clone
 if [ ! -d "$REPO_DIR/.git" ]; then
     git clone https://github.com/giahuyanhduy/client.git $REPO_DIR
 fi
