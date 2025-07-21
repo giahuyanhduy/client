@@ -310,15 +310,19 @@ def send_data_continuously(port, version,mac):
         time.sleep(sleep_duration)
 def get_mac():
     try:
-        # Sử dụng lệnh ifconfig để lấy thông tin của giao diện eth0
-        result = subprocess.check_output("ifconfig eth0", shell=True).decode()
-        mac_match = re.search(r"ether ([0-9a-fA-F:]+)", result)
+        # Lấy tên giao diện mạng từ lệnh ip route
+        interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \\K\\w+'"
+        interface = subprocess.check_output(interface_cmd, shell=True).decode().strip()
+        
+        # Lấy thông tin địa chỉ MAC từ giao diện mạng
+        result = subprocess.check_output(f"ip link show {interface}", shell=True).decode()
+        mac_match = re.search(r"ether ([\da-fA-F:]+)", result)
         if mac_match:
             return mac_match.group(1)
     except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi chạy lệnh ifconfig cho eth0: {e}")
+        print(f"Lỗi khi chạy lệnh ip link cho giao diện: {e}")
     except Exception as e:
-        print(f"Lỗi lấy MAC Address của eth0: {e}")
+        print(f"Lỗi lấy MAC Address: {e}")
     return "00:00:00:00:00:00"  # MAC mặc định nếu lỗi
 def main():
     port = get_port_from_file()
