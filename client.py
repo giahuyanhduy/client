@@ -18,15 +18,18 @@ def get_version_from_js():
         '/home/giang/Phase_3/GasController.js'
     ]
 
-    # Kiểm tra nội dung file /opt/autorun để tìm ./ips
+    # Kiểm tra nội dung file /opt/autorun để tìm ./ips và fuelmet
     has_ips = False
+    has_fuelmet = False
     try:
         with open('/opt/autorun', 'r') as file:
             content = file.read()
             if './ips' in content:
                 has_ips = True
+            if 'fuelmet' in content:
+                has_fuelmet = True
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra ./ips: {e}")
+        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra ./ips hoặc fuelmet: {e}")
 
     for path in possible_paths:
         if os.path.exists(path):
@@ -34,10 +37,23 @@ def get_version_from_js():
                 content = file.read()
                 match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
                 if match:
-                    return match.group(1) + "-IPS" if has_ips else match.group(1)
+                    version = match.group(1)
+                    if has_ips and has_fuelmet:
+                        return version + "-IPS-Fuelmet"
+                    elif has_ips:
+                        return version + "-IPS"
+                    elif has_fuelmet:
+                        return version + "-Fuelmet"
+                    return version
     
-    # Giá trị mặc định với kiểm tra IPS
-    return "1.0-IPS" if has_ips else "1.0"
+    # Giá trị mặc định với kiểm tra IPS và Fuelmet
+    if has_ips and has_fuelmet:
+        return "1.0-IPS-Fuelmet"
+    elif has_ips:
+        return "1.0-IPS"
+    elif has_fuelmet:
+        return "1.0-Fuelmet"
+    return "1.0"
 
 def get_port_from_file():
     try:
@@ -249,7 +265,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
             is_all_disconnect_restart[0] = False
 
     except Exception as e:
-        logging.error(f"Lỗi trong check_mab Oman: {e}")
+        logging.error(f"Lỗi trong check_mabom: {e}")
 
 def send_all_disconnected_warning(port):
     warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
