@@ -1,10 +1,4 @@
-
-#ver 1.27// import log
-#ver 1.28 lấy version Phase
-#ver 1.29 tăng thời gian request từ 4s lên 8s, timeout request từ 10s lên 60s
-#ver 1.30 thêm random 4 đến 8s
-#ver 1.31 thay server http://14.225.192.65/
-#ver 1.32 thêm get macid
+#1.4 thêm check /root/autostartips.sh 
 import requests
 import time
 import os
@@ -16,7 +10,6 @@ import logging
 from datetime import datetime, timedelta
 from threading import Thread
 
-
 logging.basicConfig(filename='client_log.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
 
@@ -26,15 +19,26 @@ def get_version_from_js():
         '/home/giang/Phase_3/GasController.js'
     ]
 
+    # Kiểm tra nội dung file /opt/autorun để tìm /root/autostartips.sh
+    has_autostartips = False
+    try:
+        with open('/opt/autorun', 'r') as file:
+            content = file.read()
+            if '/root/autostartips.sh' in content:
+                has_autostartips = True
+    except Exception as e:
+        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra autostartips: {e}")
+
     for path in possible_paths:
         if os.path.exists(path):
             with open(path, 'r') as file:
                 content = file.read()
                 match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
                 if match:
-                    return match.group(1)
+                    return match.group(1) + "-IPS" if has_autostartips else match.group(1)
     
-    return "1.0"  # Giá trị mặc định nếu không tìm thấy file hoặc không tìm thấy version
+    # Giá trị mặc định với kiểm tra IPS
+    return "1.0-IPS" if has_autostartips else "1.0"
 
 def get_port_from_file():
     try:
@@ -45,10 +49,10 @@ def get_port_from_file():
                 port = match.group(1).strip()
                 return port
             else:
-                logging.error("Port not found in the file.")
+                logging.error("Không tìm thấy port trong file.")
                 return None
     except Exception as e:
-        logging.error(f"Error reading port from file: {e}")
+        logging.error(f"Lỗi khi đọc port từ file: {e}")
         return None
 
 def get_data_from_url(url):
@@ -57,109 +61,105 @@ def get_data_from_url(url):
         if response.status_code == 200:
             return response.json()
         else:
-            print(f"Non-200 status code: {response.status_code}")
+            print(f"Mã trạng thái không phải 200: {response.status_code}")
             return None
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from URL: {e}")
+        print(f"Lỗi khi lấy dữ liệu từ URL: {e}")
         return None
 
 def send_data_to_flask(data, port):
     flask_url = f"http://14.225.192.65/api/receive_data/{port}"
     try:
-        response = requests.post(flask_url, json=data, timeout=10)
-        logging.info(f"Data sent to Flask server. Status Code: {response.status_code}")
+        response = requests.post(flask_url, json=data, timeout=60)
+        logging.info(f"Dữ liệu đã gửi tới Flask server. Mã trạng thái: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error sending data to Flask server: {e}")
+        logging.error(f"Lỗi khi gửi dữ liệu tới Flask server: {e}")
 
-def check_getdata_status(port, version,mac):
-    # Thay đổi URL để bao gồm cả port và version
+def check_getdata_status(port, version, mac):
     request_url = f"http://14.225.192.65/api/request/{port},{version},{mac}"
     try:
-        response = requests.get(request_url, timeout=10)
+        response = requests.get(request_url, timeout=60)
         if response.status_code == 200:
             data = response.json()
             laymabom = data.get('laymabom')
             if laymabom and laymabom != 'Off':
-                logging.info(f"laymabom value received: {laymabom}. Calling daylaidulieu API.")
+                logging.info(f"Nhận được giá trị laymabom: {laymabom}. Gọi API daylaidulieu.")
                 call_daylaidulieu_api(laymabom)
             if data.get('restart') == 'True':
-                logging.info("Restart command received. Restarting system.")
+                logging.info("Nhận được lệnh restart. Đang khởi động lại hệ thống.")
                 try:
-                    result = subprocess.run(['reboot','now'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    logging.info(f"Command executed successfully: {result.stdout.decode()}")
+                    result = subprocess.run(['reboot', 'now'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    logging.info(f"Lệnh thực thi thành công: {result.stdout.decode()}")
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Error executing command: {e.stderr.decode()}")
+                    logging.error(f"Lỗi khi thực thi lệnh: {e.stderr.decode()}")
                 except Exception as e:
-                    logging.error(f"Unexpected error executing command: {str(e)}")
+                    logging.error(f"Lỗi không mong muốn khi thực thi lệnh: {str(e)}")
             if 'ssh' in data and data['ssh']:
                 command = data['ssh']
-                logging.info(f"SSH command received: {command}. Executing command.")
+                logging.info(f"Nhận được lệnh SSH: {command}. Đang thực thi lệnh.")
                 try:
                     subprocess.Popen(command, shell=True)
-                    logging.info(f"Command execution started: {command}")
+                    logging.info(f"Đã bắt đầu thực thi lệnh: {command}")
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Error executing command: {e.stderr.decode()}")
+                    logging.error(f"Lỗi khi thực thi lệnh: {e.stderr.decode()}")
                 except Exception as e:
-                    logging.error(f"Unexpected error executing command: {str(e)}")
+                    logging.error(f"Lỗi không mong muốn khi thực thi lệnh: {str(e)}")
             return data.get('getdata') == 'On'
-        logging.error(f"Non-200 status code from check_getdata_status: {response.status_code}")
+        logging.error(f"Mã trạng thái không phải 200 từ check_getdata_status: {response.status_code}")
         return False
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error checking getdata status: {e}")
+        logging.error(f"Lỗi khi kiểm tra trạng thái getdata: {e}")
         return False
-
 
 def call_daylaidulieu_api(pump_id):
     api_url = f"http://localhost:6969/daylaidulieu/{pump_id}"
     try:
         response = requests.get(api_url, timeout=10)
-        logging.info(f"Called daylaidulieu API for pump ID {pump_id}. Status Code: {response.status_code}")
+        logging.info(f"Đã gọi API daylaidulieu cho pump ID {pump_id}. Mã trạng thái: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error calling daylaidulieu API: {e}")
-
+        logging.error(f"Lỗi khi gọi API daylaidulieu: {e}")
 
 def send_warning(port, pump_id, warning_type, mabom):
     warning_url = f"http://14.225.192.65/api/warning/{port}/{pump_id}/{warning_type}"
     try:
         response = requests.post(warning_url, json={'mabom': mabom}, timeout=10)
-        logging.info(f"Sent warning for port {port}, pump ID {pump_id}, type {warning_type}, mabom {mabom}")
+        logging.info(f"Đã gửi cảnh báo cho port {port}, pump ID {pump_id}, loại {warning_type}, mabom {mabom}")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error sending warning: {e}")
+        logging.error(f"Lỗi khi gửi cảnh báo: {e}")
+
 lastRestartAll = None
 lastNonSequentialRestart = None
-
 
 def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_disconnect_restart):
     global lastRestartAll, lastNonSequentialRestart
     current_time = datetime.now()
-    all_disconnected = True  # Kiểm tra tất cả các vòi đều mất kết nối
+    all_disconnected = True
 
     try:
         for item in data:
             idcot = item.get('id')
-            pump = item.get('pump')  # Lấy giá trị pump phía ngoài
+            pump = item.get('pump')
             statusnow = item.get('status')
-            mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')  # Lấy giá trị pump trong MaBomMoiNhat
+            mabom_moinhat = item.get('MaBomMoiNhat', {}).get('pump')
 
             if idcot is None or pump is None:
                 continue
 
             pump_id = str(idcot)
             mabomtiep = pump
-
             is_disconnected = item.get('isDisconnected', False)
 
             if not is_disconnected:
-                all_disconnected = False  # Nếu bất kỳ vòi nào không mất kết nối, đặt cờ này thành False
+                all_disconnected = False
 
             if pump_id not in connection_status:
                 connection_status[pump_id] = {
                     'is_disconnected': is_disconnected,
                     'disconnect_time': current_time if is_disconnected else None,
                     'alert_sent': False,
-                    'last_alerted_mabom': None,  # Thêm mục này để theo dõi mã bơm đã cảnh báo
-                    'mismatch_count': 0,  # Đếm số lần lệch
-                    'restart_done': False  # Đánh dấu nếu đã thực hiện restart
+                    'last_alerted_mabom': None,
+                    'mismatch_count': 0,
+                    'restart_done': False
                 }
             else:
                 if is_disconnected:
@@ -167,24 +167,24 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                         connection_status[pump_id]['is_disconnected'] = True
                         connection_status[pump_id]['disconnect_time'] = current_time
                         connection_status[pump_id]['alert_sent'] = False
-                        connection_status[pump_id]['restart_done'] = False  # Reset cờ restart_done khi mất kết nối lần nữa
+                        connection_status[pump_id]['restart_done'] = False
                     else:
                         if current_time - connection_status[pump_id]['disconnect_time'] > timedelta(seconds=65):
                             if not connection_status[pump_id]['alert_sent']:
-                                logging.info(f"Pump ID {pump_id} disconnected for more than 65 seconds.")
+                                logging.info(f"Pump ID {pump_id} mất kết nối quá 65 giây.")
                                 send_warning(port, pump_id, "disconnection", mabomtiep)
                                 connection_status[pump_id]['alert_sent'] = True
                 else:
                     if connection_status[pump_id]['is_disconnected']:
                         if current_time - connection_status[pump_id]['disconnect_time'] <= timedelta(seconds=65):
-                            logging.info(f"Pump ID {pump_id} reconnected within 65 seconds.")
+                            logging.info(f"Pump ID {pump_id} đã kết nối lại trong vòng 65 giây.")
                         connection_status[pump_id] = {
                             'is_disconnected': False,
                             'disconnect_time': None,
                             'alert_sent': False,
-                            'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),  # Giữ nguyên giá trị last_alerted_mabom
-                            'mismatch_count': connection_status[pump_id].get('mismatch_count', 0),  # Giữ nguyên giá trị mismatch_count
-                            'restart_done': connection_status[pump_id].get('restart_done', False)  # Giữ nguyên giá trị restart_done
+                            'last_alerted_mabom': connection_status[pump_id].get('last_alerted_mabom'),
+                            'mismatch_count': connection_status[pump_id].get('mismatch_count', 0),
+                            'restart_done': connection_status[pump_id].get('restart_done', False)
                         }
 
             if pump_id not in mabom_history:
@@ -211,10 +211,10 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                             lastNonSequentialRestart = current_time
                             time.sleep(3)
                             call_daylaidulieu_api(pump_id)
-                            send_warning(port, pump_id, "nonsequential", mabomtiep)  # Gửi cảnh báo lên server
+                            send_warning(port, pump_id, "nonsequential", mabomtiep)
                             connection_status[pump_id]['mismatch_count'] = 0
                         else:
-                            logging.info("Phát hiện mã bơm không liên tiếp, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
+                            logging.info("Phát hiện mã bơm không liên tiếp, nhưng đã restartall gần đây. Đợi 10 phút.")
                 else:
                     connection_status[pump_id]['mismatch_count'] = 0
 
@@ -223,7 +223,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                     if isinstance(mabomtiep, int) and isinstance(previous_mabom, int):
                         if mabomtiep != previous_mabom + 1:
                             if connection_status[pump_id]['last_alerted_mabom'] != mabomtiep:
-                                logging.info(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port} phát hiện mã bơm không liên tiếp.")
+                                logging.info(f"Lỗi mã bơm không liên tiếp: Vòi bơm {pump_id} của port {port}.")
                                 send_warning(port, pump_id, "nonsequential", mabomtiep)
                                 call_daylaidulieu_api(pump_id)
                                 mabom_history[pump_id].append({
@@ -242,119 +242,112 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
                 for conn in connection_status.values():
                     conn['restart_done'] = True
                 send_all_disconnected_warning(port)
-                is_all_disconnect_restart[0] = True  # Đặt cờ khi tất cả các vòi đều mất kết nối and đã restartall
+                is_all_disconnect_restart[0] = True
             else:
-                logging.info("Tất cả các vòi đều mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút trước khi restartall lần nữa.")
-
+                logging.info("Tất cả các vòi mất kết nối, nhưng đã restartall gần đây. Đợi 10 phút.")
+        
         if not all_disconnected:
-            is_all_disconnect_restart[0] = False  # Reset cờ khi ít nhất một vòi kết nối lại
+            is_all_disconnect_restart[0] = False
 
     except Exception as e:
-        logging.error(f"Error in check_mabom: {e}")
+        logging.error(f"Lỗi trong check_mabom: {e}")
 
 def send_all_disconnected_warning(port):
     warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
     try:
-        response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối. Đã thực hiện restart service.'})
-        print(f"Sent all disconnected warning for port {port}")
+        response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối.'})
+        print(f"Đã gửi cảnh báo mất kết nối tất cả cho port {port}")
     except requests.exceptions.RequestException as e:
-        print(f"Error sending all disconnected warning: {e}")
+        print(f"Lỗi khi gửi cảnh báo mất kết nối tất cả: {e}")
 
 def check_mabom_continuously(port, mabom_file_path):
     if os.path.exists(mabom_file_path):
         try:
             with open(mabom_file_path, 'r') as file:
                 mabom_history = json.load(file)
-                print(f"Loaded existing mabom history from {mabom_file_path}")
+                print(f"Đã tải lịch sử mabom từ {mabom_file_path}")
         except Exception as e:
-            print(f"Error loading mabom history from file: {e}")
+            print(f"Lỗi khi tải lịch sử mabom: {e}")
             mabom_history = {}
     else:
         mabom_history = {}
-        # Tạo file mới nếu chưa tồn tại
         try:
             with open(mabom_file_path, 'w') as file:
                 json.dump(mabom_history, file, indent=4)
-                print(f"Created new mabom history file at {mabom_file_path}")
+                print(f"Đã tạo file lịch sử mabom tại {mabom_file_path}")
         except Exception as e:
-            print(f"Error creating mabom history file: {e}")
+            print(f"Lỗi khi tạo file lịch sử mabom: {e}")
 
     connection_status = {}
-    is_all_disconnect_restart = [False]  # Cờ cho biết nếu tất cả vòi đều mất kết nối and đã restartall
+    is_all_disconnect_restart = [False]
 
     while True:
         data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
-        #print(data_from_url)
         if data_from_url:
             check_mabom(data_from_url, mabom_history, mabom_file_path, port, connection_status, is_all_disconnect_restart)
         else:
-            print("Failed to retrieve data from URL")
+            print("Không lấy được dữ liệu từ URL")
         time.sleep(2)
 
 def random_sleep_time():
     return random.uniform(4, 8)
 
-def send_data_continuously(port, version,mac):
+def send_data_continuously(port, version, mac):
     while True:
-        if check_getdata_status(port, version,mac):  # Đảm bảo truyền version vào đây
+        if check_getdata_status(port, version, mac):
             data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
             if data_from_url:
                 send_data_to_flask(data_from_url, port)
-                print("Data sent to Flask server")
+                print("Dữ liệu đã gửi tới Flask server")
             else:
-                print("Failed to retrieve data from URL")
+                print("Không lấy được dữ liệu từ URL")
         else:
-            print("getdata is Off")
+            print("getdata đang Off")
         
         sleep_duration = random_sleep_time()
         time.sleep(sleep_duration)
+
 def get_mac():
     try:
-        # Lấy tên giao diện mạng từ lệnh ip route
         interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \\K\\w+'"
         interface = subprocess.check_output(interface_cmd, shell=True).decode().strip()
-        
-        # Lấy thông tin địa chỉ MAC từ giao diện mạng
         result = subprocess.check_output(f"ip link show {interface}", shell=True).decode()
         mac_match = re.search(r"ether ([\da-fA-F:]+)", result)
         if mac_match:
             return mac_match.group(1)
     except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi chạy lệnh ip link cho giao diện: {e}")
+        print(f"Lỗi khi chạy lệnh ip link: {e}")
     except Exception as e:
         print(f"Lỗi lấy MAC Address: {e}")
-    return "00:00:00:00:00:00"  # MAC mặc định nếu lỗi
+    return "00:00:00:00:00:00"
+
 def main():
     port = get_port_from_file()
     if not port:
-        print("No port found. Exiting.")
+        print("Không tìm thấy port. Thoát.")
         return
     mac = get_mac()
     if not mac:
-        print("No mac found. Exiting.")
+        print("Không tìm thấy MAC. Thoát.")
         return
-    print(f"Using port: {port}")
+    print(f"Sử dụng port: {port}")
     version = get_version_from_js()
-    print(f"Using version: {version}")
-    # Đảm bảo rằng mabom_file_path là đường dẫn đầy đủ
+    print(f"Sử dụng version: {version}")
     script_dir = os.path.dirname(os.path.realpath(__file__))
     mabom_file_path = os.path.join(script_dir, 'mabom.json')
 
-    # Kiểm tra and tạo file mabom.json nếu chưa tồn tại
     if not os.path.exists(mabom_file_path):
         try:
             with open(mabom_file_path, 'w') as file:
                 json.dump({}, file, indent=4)
-                print(f"Created new mabom history file at {mabom_file_path}")
+                print(f"Đã tạo file lịch sử mabom tại {mabom_file_path}")
         except Exception as e:
-            print(f"Error creating mabom history file: {e}")
+            print(f"Lỗi khi tạo file lịch sử mabom: {e}")
             return
 
-    # Run mabom check in a separate thread
     mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path))
     mabom_thread.start()
+    send_data_continuously(port, version, mac)
 
-    # Run data sending in the main thread
-    send_data_continuously(port, version,mac)  # Truyền cả port và version
 if __name__ == "__main__":
     main()
