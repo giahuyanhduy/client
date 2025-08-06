@@ -1,4 +1,3 @@
-#1.4 thêm check /root/autostartips.sh 
 import requests
 import time
 import os
@@ -19,15 +18,15 @@ def get_version_from_js():
         '/home/giang/Phase_3/GasController.js'
     ]
 
-    # Kiểm tra nội dung file /opt/autorun để tìm /root/autostartips.sh
-    has_autostartips = False
+    # Kiểm tra nội dung file /opt/autorun để tìm ./ips
+    has_ips = False
     try:
         with open('/opt/autorun', 'r') as file:
             content = file.read()
-            if '/root/autostartips.sh' in content:
-                has_autostartips = True
+            if './ips' in content:
+                has_ips = True
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra autostartips: {e}")
+        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra ./ips: {e}")
 
     for path in possible_paths:
         if os.path.exists(path):
@@ -35,10 +34,10 @@ def get_version_from_js():
                 content = file.read()
                 match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
                 if match:
-                    return match.group(1) + "-IPS" if has_autostartips else match.group(1)
+                    return match.group(1) + "-IPS" if has_ips else match.group(1)
     
     # Giá trị mặc định với kiểm tra IPS
-    return "1.0-IPS" if has_autostartips else "1.0"
+    return "1.0-IPS" if has_ips else "1.0"
 
 def get_port_from_file():
     try:
@@ -250,7 +249,7 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
             is_all_disconnect_restart[0] = False
 
     except Exception as e:
-        logging.error(f"Lỗi trong check_mabom: {e}")
+        logging.error(f"Lỗi trong check_mab Oman: {e}")
 
 def send_all_disconnected_warning(port):
     warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
