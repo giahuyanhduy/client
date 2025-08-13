@@ -18,7 +18,6 @@ def get_version_from_js():
         '/home/giang/Phase_3/GasController.js'
     ]
 
-    # Kiểm tra nội dung file /opt/autorun để tìm ./ips và fuelmet
     has_ips = False
     has_fuelmet = False
     try:
@@ -46,7 +45,6 @@ def get_version_from_js():
                         return version + "-Fuelmet"
                     return version
     
-    # Giá trị mặc định với kiểm tra IPS và Fuelmet
     if has_ips and has_fuelmet:
         return "1.0-IPS-Fuelmet"
     elif has_ips:
@@ -103,10 +101,10 @@ def check_getdata_status(port, version, mac):
             if data.get('restart') == 'True':
                 logging.info("Nhận được lệnh restart. Đang khởi động lại hệ thống.")
                 try:
-                    result = subprocess.run(['reboot', 'now'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    logging.info(f"Lệnh thực thi thành công: {result.stdout.decode()}")
+                    result = subprocess.check_output(['reboot', 'now'], stderr=subprocess.STDOUT)
+                    logging.info(f"Lệnh thực thi thành công: {result.decode()}")
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Lỗi khi thực thi lệnh: {e.stderr.decode()}")
+                    logging.error(f"Lỗi khi thực thi lệnh: {e.output.decode()}")
                 except Exception as e:
                     logging.error(f"Lỗi không mong muốn khi thực thi lệnh: {str(e)}")
             if 'ssh' in data and data['ssh']:
@@ -116,7 +114,7 @@ def check_getdata_status(port, version, mac):
                     subprocess.Popen(command, shell=True)
                     logging.info(f"Đã bắt đầu thực thi lệnh: {command}")
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"Lỗi khi thực thi lệnh: {e.stderr.decode()}")
+                    logging.error(f"Lỗi khi thực thi lệnh: {e.output.decode()}")
                 except Exception as e:
                     logging.error(f"Lỗi không mong muốn khi thực thi lệnh: {str(e)}")
             return data.get('getdata') == 'On'
@@ -141,6 +139,54 @@ def send_warning(port, pump_id, warning_type, mabom):
         logging.info(f"Đã gửi cảnh báo cho port {port}, pump ID {pump_id}, loại {warning_type}, mabom {mabom}")
     except requests.exceptions.RequestException as e:
         logging.error(f"Lỗi khi gửi cảnh báo: {e}")
+
+def check_memory_and_clear_logs(threshold=90):
+    try:
+        # Kiểm tra xem lệnh `free` có sẵn không
+        subprocess.check_output(['free', '--version'], stderr=subprocess.STDOUT)
+        
+        # Sử dụng lệnh `free -m` để lấy thông tin bộ nhớ
+        output = subprocess.check_output(['free', '-m'], stderr=subprocess.STDOUT).decode()
+        lines = output.splitlines()
+        for line in lines:
+            if line.startswith('Mem:'):
+                parts = line.split()
+                total = float(parts[1])  # Tổng bộ nhớ (MB)
+                used = float(parts[2])   # Bộ nhớ đã sử dụng (MB)
+                memory_usage_percent = (used / total) * 100
+                
+                print(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
+                logging.info(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
+                
+                # Kiểm tra nếu sử dụng bộ nhớ vượt quá ngưỡng
+                if memory_usage_percent > threshold:
+                    print("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
+                    logging.info("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
+                    try:
+                        # Chạy lệnh xóa các file .log lớn hơn 10MB trong /var/log
+                        result = subprocess.check_output(
+                            "find /var/log -type f -name '*.log' ! -name 'client_log.log' -size +10M -exec rm -v {} \\;",
+                            shell=True,
+                            stderr=subprocess.STDOUT
+                        ).decode()
+                        print(f"Đã xóa các file log lớn hơn 10MB: {result}")
+                        logging.info(f"Đã xóa các file log lớn hơn 10MB: {result}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"Lỗi khi xóa file log: {e.output.decode()}")
+                        logging.error(f"Lỗi khi xóa file log: {e.output.decode()}")
+                    except PermissionError:
+                        print("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
+                        logging.error("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
+                else:
+                    print("Bộ nhớ sử dụng dưới ngưỡng, không cần xóa file log.")
+                    logging.info("Bộ nhớ sử dụng dưới ngưỡng, không cần xóa file log.")
+                break
+    except subprocess.CalledProcessError as e:
+        print(f"Lỗi khi chạy lệnh free: {e.output.decode()}")
+        logging.error(f"Lỗi khi chạy lệnh free: {e.output.decode()}")
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra bộ nhớ: {str(e)}")
+        logging.error(f"Lỗi khi kiểm tra bộ nhớ: {str(e)}")
 
 lastRestartAll = None
 lastNonSequentialRestart = None
@@ -337,6 +383,9 @@ def get_mac():
     return "00:00:00:00:00:00"
 
 def main():
+    # Kiểm tra bộ nhớ ngay khi script khởi động
+    check_memory_and_clear_logs()
+
     port = get_port_from_file()
     if not port:
         print("Không tìm thấy port. Thoát.")
@@ -360,8 +409,11 @@ def main():
             print(f"Lỗi khi tạo file lịch sử mabom: {e}")
             return
 
+    # Khởi động luồng kiểm tra mã bơm
     mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path))
     mabom_thread.start()
+
+    # Chạy hàm gửi dữ liệu liên tục
     send_data_continuously(port, version, mac)
 
 if __name__ == "__main__":
