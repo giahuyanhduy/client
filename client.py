@@ -12,6 +12,22 @@ from threading import Thread
 logging.basicConfig(filename='client_log.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
 
+def get_cpu_arch():
+    try:
+        arch = subprocess.check_output(['uname', '-m']).decode().strip()
+        if 'arm' in arch.lower() or 'aarch64' in arch.lower():
+            return 'ARM'
+        elif 'x86' in arch.lower() or 'i686' in arch.lower():
+            return 'X86'
+        else:
+            return 'Unknown'
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Lỗi khi lấy kiến trúc CPU: {e}")
+        return 'Unknown'
+    except Exception as e:
+        logging.error(f"Lỗi không mong muốn khi lấy kiến trúc CPU: {e}")
+        return 'Unknown'
+
 def get_version_from_js():
     possible_paths = [
         '/home/Phase_3/GasController.js',
@@ -30,6 +46,7 @@ def get_version_from_js():
     except Exception as e:
         logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra ./ips hoặc fuelmet: {e}")
 
+    cpu_arch = get_cpu_arch()
     for path in possible_paths:
         if os.path.exists(path):
             with open(path, 'r') as file:
@@ -37,6 +54,7 @@ def get_version_from_js():
                 match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
                 if match:
                     version = match.group(1)
+                    version = f"{cpu_arch}-{version}"
                     if has_ips and has_fuelmet:
                         return version + "-IPS-Fuelmet"
                     elif has_ips:
@@ -45,13 +63,14 @@ def get_version_from_js():
                         return version + "-Fuelmet"
                     return version
     
+    version = f"{cpu_arch}-1.0"
     if has_ips and has_fuelmet:
-        return "1.0-IPS-Fuelmet"
+        return version + "-IPS-Fuelmet"
     elif has_ips:
-        return "1.0-IPS"
+        return version + "-IPS"
     elif has_fuelmet:
-        return "1.0-Fuelmet"
-    return "1.0"
+        return version + "-Fuelmet"
+    return version
 
 def get_port_from_file():
     try:
@@ -142,28 +161,21 @@ def send_warning(port, pump_id, warning_type, mabom):
 
 def check_memory_and_clear_logs(threshold=90):
     try:
-        # Kiểm tra xem lệnh `free` có sẵn không
         subprocess.check_output(['free', '--version'], stderr=subprocess.STDOUT)
-        
-        # Sử dụng lệnh `free -m` để lấy thông tin bộ nhớ
         output = subprocess.check_output(['free', '-m'], stderr=subprocess.STDOUT).decode()
         lines = output.splitlines()
         for line in lines:
             if line.startswith('Mem:'):
                 parts = line.split()
-                total = float(parts[1])  # Tổng bộ nhớ (MB)
-                used = float(parts[2])   # Bộ nhớ đã sử dụng (MB)
+                total = float(parts[1])
+                used = float(parts[2])
                 memory_usage_percent = (used / total) * 100
-                
                 print(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
                 logging.info(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
-                
-                # Kiểm tra nếu sử dụng bộ nhớ vượt quá ngưỡng
                 if memory_usage_percent > threshold:
                     print("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
                     logging.info("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
                     try:
-                        # Chạy lệnh xóa các file .log lớn hơn 10MB trong /var/log
                         result = subprocess.check_output(
                             "find /var/log -type f -name '*.log' ! -name 'client_log.log' -size +10M -exec rm -v {} \\;",
                             shell=True,
@@ -378,14 +390,14 @@ def get_mac():
             return mac_match.group(1)
     except subprocess.CalledProcessError as e:
         print(f"Lỗi khi chạy lệnh ip link: {e}")
+        logging.error(f"Lỗi khi chạy lệnh ip link: {e}")
     except Exception as e:
         print(f"Lỗi lấy MAC Address: {e}")
+        logging.error(f"Lỗi lấy MAC Address: {e}")
     return "00:00:00:00:00:00"
 
 def main():
-    # Kiểm tra bộ nhớ ngay khi script khởi động
     check_memory_and_clear_logs()
-
     port = get_port_from_file()
     if not port:
         print("Không tìm thấy port. Thoát.")
@@ -395,6 +407,7 @@ def main():
         print("Không tìm thấy MAC. Thoát.")
         return
     print(f"Sử dụng port: {port}")
+    print(f"Sử dụng MAC: {mac}")
     version = get_version_from_js()
     print(f"Sử dụng version: {version}")
     script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -409,11 +422,8 @@ def main():
             print(f"Lỗi khi tạo file lịch sử mabom: {e}")
             return
 
-    # Khởi động luồng kiểm tra mã bơm
     mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path))
     mabom_thread.start()
-
-    # Chạy hàm gửi dữ liệu liên tục
     send_data_continuously(port, version, mac)
 
 if __name__ == "__main__":
