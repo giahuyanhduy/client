@@ -159,7 +159,7 @@ def send_warning(port, pump_id, warning_type, mabom):
     except requests.exceptions.RequestException as e:
         logging.error(f"Lỗi khi gửi cảnh báo: {e}")
 
-def check_disk_and_clear_logs(threshold=80):
+def check_disk_and_clear_logs(threshold=85):
     try:
         # Kiểm tra dung lượng ổ cứng sử dụng lệnh df
         output = subprocess.check_output(['df', '-h', '/'], stderr=subprocess.STDOUT).decode()
