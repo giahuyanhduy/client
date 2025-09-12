@@ -159,30 +159,67 @@ def send_warning(port, pump_id, warning_type, mabom):
     except requests.exceptions.RequestException as e:
         logging.error(f"Lỗi khi gửi cảnh báo: {e}")
 
-def check_memory_and_clear_logs(threshold=90):
+def check_disk_and_clear_logs(threshold=80):
     try:
-        subprocess.check_output(['free', '--version'], stderr=subprocess.STDOUT)
-        output = subprocess.check_output(['free', '-m'], stderr=subprocess.STDOUT).decode()
+        # Kiểm tra dung lượng ổ cứng sử dụng lệnh df
+        output = subprocess.check_output(['df', '-h', '/'], stderr=subprocess.STDOUT).decode()
         lines = output.splitlines()
         for line in lines:
-            if line.startswith('Mem:'):
+            if line.strip().endswith(' /'):
                 parts = line.split()
-                total = float(parts[1])
-                used = float(parts[2])
-                memory_usage_percent = (used / total) * 100
-                print(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
-                logging.info(f"Mức sử dụng bộ nhớ hiện tại: {memory_usage_percent:.2f}%")
-                if memory_usage_percent > threshold:
-                    print("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
-                    logging.info("Bộ nhớ sử dụng vượt quá 90%. Tiến hành xóa các file log lớn hơn 10MB...")
-                    try:
-                        result = subprocess.check_output(
-                            "find /var/log -type f -name '*.log' ! -name 'client_log.log' -size +10M -exec rm -v {} \\;",
+                if len(parts) >= 5:
+                    # Lấy phần trăm sử dụng từ cột thứ 5 (ví dụ: "85%")
+                    usage_str = parts[4].replace('%', '')
+                    disk_usage_percent = float(usage_str)
+                    print(f"Mức sử dụng ổ cứng hiện tại: {disk_usage_percent:.2f}%")
+                    logging.info(f"Mức sử dụng ổ cứng hiện tại: {disk_usage_percent:.2f}%")
+                    if disk_usage_percent > threshold:
+                        print(f"Ổ cứng sử dụng vượt quá {threshold}%. Tiến hành xóa các file log...")
+                        logging.info(f"Ổ cứng sử dụng vượt quá {threshold}%. Tiến hành xóa các file log...")
+                        try:
+                            # Xóa tất cả file log trong toàn bộ hệ thống
+                            result1 = subprocess.check_output(
+                                "find / -type f -name '*.log' -execdir rm -- '{}' +",
+                                shell=True,
+                                stderr=subprocess.STDOUT
+                            ).decode()
+                            print(f"Đã xóa các file log trong toàn bộ hệ thống: {result1}")
+                            logging.info(f"Đã xóa các file log trong toàn bộ hệ thống: {result1}")
+                            
+                            # Xóa thêm các file log và cache khác
+                            try:
+                                # Xóa file log cũ trong /var/log
+                                result2 = subprocess.check_output(
+                                    "find /var/log -type f -name '*.log.*' -exec rm -v {} \\; 2>/dev/null || true",
+                                    shell=True,
+                                    stderr=subprocess.STDOUT
+                                ).decode()
+                                if result2.strip():
+                                    print(f"Đã xóa các file log cũ: {result2}")
+                                    logging.info(f"Đã xóa các file log cũ: {result2}")
+                                
+                                # Xóa cache apt
+                                result3 = subprocess.check_output(
+                                    "apt-get clean && apt-get autoclean",
+                                    shell=True,
+                                    stderr=subprocess.STDOUT
+                                ).decode()
+                                print("Đã dọn dẹp cache apt")
+                                logging.info("Đã dọn dẹp cache apt")
+                                
+                                # Xóa file tạm
+                                result4 = subprocess.check_output(
+                                    "find /tmp -type f -atime +7 -exec rm -v {} \\; 2>/dev/null || true",
                             shell=True,
                             stderr=subprocess.STDOUT
                         ).decode()
-                        print(f"Đã xóa các file log lớn hơn 10MB: {result}")
-                        logging.info(f"Đã xóa các file log lớn hơn 10MB: {result}")
+                                if result4.strip():
+                                    print(f"Đã xóa file tạm cũ: {result4}")
+                                    logging.info(f"Đã xóa file tạm cũ: {result4}")
+                                    
+                            except subprocess.CalledProcessError as e:
+                                print(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
+                                logging.error(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
                     except subprocess.CalledProcessError as e:
                         print(f"Lỗi khi xóa file log: {e.output.decode()}")
                         logging.error(f"Lỗi khi xóa file log: {e.output.decode()}")
@@ -190,15 +227,15 @@ def check_memory_and_clear_logs(threshold=90):
                         print("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
                         logging.error("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
                 else:
-                    print("Bộ nhớ sử dụng dưới ngưỡng, không cần xóa file log.")
-                    logging.info("Bộ nhớ sử dụng dưới ngưỡng, không cần xóa file log.")
+                        print(f"Ổ cứng sử dụng dưới ngưỡng {threshold}%, không cần xóa file log.")
+                        logging.info(f"Ổ cứng sử dụng dưới ngưỡng {threshold}%, không cần xóa file log.")
                 break
     except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi chạy lệnh free: {e.output.decode()}")
-        logging.error(f"Lỗi khi chạy lệnh free: {e.output.decode()}")
+        print(f"Lỗi khi chạy lệnh df: {e.output.decode()}")
+        logging.error(f"Lỗi khi chạy lệnh df: {e.output.decode()}")
     except Exception as e:
-        print(f"Lỗi khi kiểm tra bộ nhớ: {str(e)}")
-        logging.error(f"Lỗi khi kiểm tra bộ nhớ: {str(e)}")
+        print(f"Lỗi khi kiểm tra ổ cứng: {str(e)}")
+        logging.error(f"Lỗi khi kiểm tra ổ cứng: {str(e)}")
 
 lastRestartAll = None
 lastNonSequentialRestart = None
@@ -397,7 +434,7 @@ def get_mac():
     return "00:00:00:00:00:00"
 
 def main():
-    check_memory_and_clear_logs()
+    check_disk_and_clear_logs()
     port = get_port_from_file()
     if not port:
         print("Không tìm thấy port. Thoát.")
