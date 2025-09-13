@@ -210,9 +210,9 @@ def check_disk_and_clear_logs(threshold=85):
                                 # Xóa file tạm
                                 result4 = subprocess.check_output(
                                     "find /tmp -type f -atime +7 -exec rm -v {} \\; 2>/dev/null || true",
-                            shell=True,
-                            stderr=subprocess.STDOUT
-                        ).decode()
+                                    shell=True,
+                                    stderr=subprocess.STDOUT
+                                ).decode()
                                 if result4.strip():
                                     print(f"Đã xóa file tạm cũ: {result4}")
                                     logging.info(f"Đã xóa file tạm cũ: {result4}")
@@ -220,13 +220,13 @@ def check_disk_and_clear_logs(threshold=85):
                             except subprocess.CalledProcessError as e:
                                 print(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
                                 logging.error(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
-                    except subprocess.CalledProcessError as e:
-                        print(f"Lỗi khi xóa file log: {e.output.decode()}")
-                        logging.error(f"Lỗi khi xóa file log: {e.output.decode()}")
-                    except PermissionError:
-                        print("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
-                        logging.error("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
-                else:
+                        except subprocess.CalledProcessError as e:
+                            print(f"Lỗi khi xóa file log: {e.output.decode()}")
+                            logging.error(f"Lỗi khi xóa file log: {e.output.decode()}")
+                        except PermissionError:
+                            print("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
+                            logging.error("Không đủ quyền để xóa file log. Vui lòng chạy script với quyền sudo.")
+                    else:
                         print(f"Ổ cứng sử dụng dưới ngưỡng {threshold}%, không cần xóa file log.")
                         logging.info(f"Ổ cứng sử dụng dưới ngưỡng {threshold}%, không cần xóa file log.")
                 break
