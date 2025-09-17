@@ -419,7 +419,7 @@ def send_data_continuously(port, version, mac):
 
 def get_mac():
     try:
-        interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \\K\\w+'"
+        interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \K\w+'"
         interface = subprocess.check_output(interface_cmd, shell=True).decode().strip()
         result = subprocess.check_output(f"ip link show {interface}", shell=True).decode()
         mac_match = re.search(r"ether ([\da-fA-F:]+)", result)
