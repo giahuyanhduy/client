@@ -749,15 +749,26 @@ def check_mabom_continuously(port, mabom_file_path, mode, pump_ids):
 def random_sleep_time():
     return random.uniform(4, 8)
 
+_api_fail_count = 0
+
 def send_data_continuously(port, version, mac, mode, pump_ids):
+    global _api_fail_count
     while True:
         if check_getdata_status(port, version, mac):
             data_from_source = get_pump_data(mode, pump_ids)
             if data_from_source:
                 send_data_to_flask(data_from_source, port)
                 print("Dữ liệu đã gửi tới Flask server")
+                _api_fail_count = 0
             else:
-                print("Không lấy được dữ liệu từ nguồn")
+                _api_fail_count += 1
+                source = "Socket 8086" if mode == MODE_8086 else "API 6969"
+                print(f"[!] Không kết nối được {source} ({_api_fail_count} lần liên tiếp)")
+                # Sau 3 lần thất bại liên tiếp → gửi cảnh báo mất kết nối lên server
+                if _api_fail_count >= 3:
+                    print(f"[!] Gửi cảnh báo mất kết nối tất cả lên server")
+                    send_all_disconnected_warning(port)
+                    _api_fail_count = 0
         else:
             print("getdata đang Off")
         
