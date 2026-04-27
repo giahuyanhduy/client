@@ -179,6 +179,7 @@ STATUS_MAP = {
     0x10: 'sẵn sàng',        # Extended idle - Đã treo vòi, sẵn sàng
     0x11: 'sẵn sàng',        # Post-transaction idle
     0x14: 'đang bơm',        # Fueling variant
+    0x22: 'đang bơm',        # Fueling (xác nhận từ thực tế: lít tăng liên tục)
 }
 
 FUEL_MAP = {
@@ -354,11 +355,14 @@ def get_data_from_socket(pump_ids):
                             if parsed:
                                 results.append(parsed)
                             else:
+                                print(f"[8086] Vòi ID {pid}: Phản hồi không hợp lệ")
                                 results.append(_make_disconnected_entry(pid))
                     except Exception as e:
+                        print(f"[8086] Lỗi quét vòi ID {pid}: {e}")
                         logging.error(f"Lỗi khi quét pump ID {pid}: {e}")
                         results.append(_make_disconnected_entry(pid))
         except Exception as e:
+            print(f"[8086] Không thể kết nối Socket 8086: {e}")
             logging.error(f"Lỗi kết nối Socket 8086: {e}")
             for pid in pump_ids:
                 results.append(_make_disconnected_entry(pid))
@@ -423,6 +427,10 @@ def get_pump_data(mode, pump_ids=None):
 def send_data_to_flask(data, port):
     flask_url = f"http://14.225.192.65/api/receive_data/{port}"
     try:
+        # In tóm gọn nội dung gửi lên server
+        print(f"[→ SV] Gửi {len(data)} vòi lên port {port}:")
+        for d in data:
+            print(f"  Vòi {d.get('id')}: {d.get('status')} | Mã:{d.get('pump')} | {d.get('lit',0):.3f}L | {d.get('tien',0):,}đ | {d.get('dongia',0):,}đ/L")
         response = requests.post(flask_url, json=data, timeout=60)
         logging.info(f"Dữ liệu đã gửi tới Flask server. Mã trạng thái: {response.status_code}")
     except requests.exceptions.RequestException as e:
