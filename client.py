@@ -205,9 +205,26 @@ def _build_cmd_0x49(device_id):
 def _parse_pump_response(data, pump_id):
     """
     Parse binary response từ KIT và chuyển thành JSON format GIỐNG HỆT API 6969.
+    Xử lý cả NAK (lỗi) và trạng thái offline.
     """
-    if len(data) < 47:
+    if not data or len(data) < 5:
         return None
+    
+    # Kiểm tra NAK (response lỗi - packet ngắn)
+    if len(data) < 47:
+        # Có thể là NAK error response
+        if len(data) >= 6:
+            error_code = data[4]
+            errors = {
+                0x81: 'không tìm thấy vòi bơm',
+                0x82: 'vòi bơm power off',
+                0x83: 'invalid data',
+            }
+            err_msg = errors.get(error_code, f'mã lỗi 0x{error_code:02X}')
+            print(f"[8086] Vòi ID {pump_id}: NAK - {err_msg}")
+            logging.error(f"Pump ID {pump_id} NAK: {err_msg}")
+        return None  # Trả None → sẽ tạo disconnected entry ở hàm gọi
+    
     if sum(data) % 256 != 0:
         logging.error(f"Checksum lỗi cho pump ID {pump_id}")
         return None
@@ -228,22 +245,26 @@ def _parse_pump_response(data, pump_id):
         rfid_tx = struct.unpack('<I', data[40:44])[0]       # RFID tài xế
 
         status_str = STATUS_MAP.get(status_byte, 'sẵn sàng')
-        lit_value = lit_raw / 1000.0
         fuel_info = FUEL_MAP.get(fuel_type, {'metro': f'Loại {fuel_type}', 'metroId': fuel_type})
         now = datetime.now()
         now_str = now.strftime('%d-%m-%Y %H:%M:%S')
+
+        # Kiểm tra trạng thái offline → đánh dấu mất kết nối
+        is_disconnected = (status_str == 'offline')
+        if is_disconnected:
+            print(f"[8086] Vòi ID {pump_id}: Offline (status=0x{status_byte:02X})")
 
         # Tạo JSON format giống hệt API 6969
         return {
             'timeOut': 0,
             'id': pump_id,
             'com': '127.0.0.18086',
-            'status': status_str,
+            'status': 'mất kết nối' if is_disconnected else status_str,
             'statusID': status_byte,
             'dongia': gia,
-            'lit': lit_value,
-            'tien': tien,
-            'tienOld': tien,
+            'lit': 0 if is_disconnected else (lit_raw / 1000.0),
+            'tien': 0 if is_disconnected else tien,
+            'tienOld': 0 if is_disconnected else tien,
             'pump': pump_code,
             'currentmaBom': pump_code,
             'ca_Lit': ca_lit,
@@ -279,7 +300,7 @@ def _parse_pump_response(data, pump_id):
             'CaBomCu': [],
             'isGiaBomChange': False,
             'hanmuc': None,
-            'isDisconnected': False,
+            'isDisconnected': is_disconnected,
             'isHandleMaBom': False,
             'tienchuachotngay': 0,
             'litchuachotngay': 0,
