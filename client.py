@@ -179,6 +179,7 @@ STATUS_MAP = {
     0x10: 'sẵn sàng',        # Extended idle - Đã treo vòi, sẵn sàng
     0x11: 'sẵn sàng',        # Post-transaction idle
     0x14: 'đang bơm',        # Fueling variant
+    0x20: 'gọi',             # Calling - Nhấc vòi / Đang chuẩn bị (lít về 0)
     0x22: 'đang bơm',        # Fueling (xác nhận từ thực tế: lít tăng liên tục)
 }
 
@@ -211,7 +212,8 @@ def _parse_pump_response(data, pump_id):
         return None
     
     # Kiểm tra NAK (response lỗi - packet ngắn)
-    if len(data) < 47:
+    # Kiểm tra NAK (response lỗi - packet ngắn hoặc CMD=0x4E)
+    if len(data) < 47 or (len(data) >= 4 and data[3] == 0x4E):
         # Có thể là NAK error response
         if len(data) >= 6:
             error_code = data[4]
@@ -245,7 +247,7 @@ def _parse_pump_response(data, pump_id):
         rfid_tx = struct.unpack('<I', data[40:44])[0]       # RFID tài xế
 
         status_str = STATUS_MAP.get(status_byte, 'sẵn sàng')
-        fuel_info = FUEL_MAP.get(fuel_type, {'metro': f'Loại {fuel_type}', 'metroId': fuel_type})
+        fuel_info = FUEL_MAP.get(fuel_type, {'metro': 'NONE', 'metroId': fuel_type})
         now = datetime.now()
         now_str = now.strftime('%d-%m-%Y %H:%M:%S')
 
@@ -253,6 +255,15 @@ def _parse_pump_response(data, pump_id):
         is_disconnected = (status_str == 'offline')
         if is_disconnected:
             print(f"[8086] Vòi ID {pump_id}: Offline (status=0x{status_byte:02X})")
+
+        # Cập nhật cache mã bơm thực tế (chỉ khi vòi đang hoạt động)
+        if not is_disconnected and pump_code > 0:
+            _last_known_pump[pump_id] = {
+                'pump': pump_code,
+                'dongia': gia,
+                'metro': fuel_info['metro'],
+                'metroId': fuel_info['metroId'],
+            }
 
         # Tạo JSON format giống hệt API 6969
         return {
@@ -272,7 +283,6 @@ def _parse_pump_response(data, pump_id):
             'tongsolitdenhientai': tong_lit,
             'totalcare': tong_mlit,
             'macabom': cur_shift,
-            'caID': cur_shift,
             'metro': fuel_info['metro'],
             'metroId': fuel_info['metroId'],
             'flag': 0,
@@ -280,10 +290,12 @@ def _parse_pump_response(data, pump_id):
             'thoigianUpdateCuoi': now_str,
             'flagGetCaBom': True,
             'flagGetMaBom': True,
+            'lenhsetthoigian_gannhat': None,
             'MaBomMoiNhat': {
                 'idca': cur_shift,
                 'idcot': pump_id,
                 'date': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                'startTime': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
                 'money': tien,
                 'mili': lit_raw,
                 'pos': 0,
@@ -292,6 +304,9 @@ def _parse_pump_response(data, pump_id):
                 'id1': rfid_nv,
                 'id2': rfid_tx,
                 'gia': -1,
+                'startTimeDate_Text': now.strftime('%d/%m/%Y %H:%M:%S'),
+                'date_Text': now.strftime('%d/%m/%Y %H:%M:%S'),
+                'idct': None,
             },
             'CaBomMoiNhat': {
                 'idca': cur_shift,
@@ -301,9 +316,12 @@ def _parse_pump_response(data, pump_id):
             'isGiaBomChange': False,
             'hanmuc': None,
             'isDisconnected': is_disconnected,
+            'timeStartDisconnect': now.strftime('%Y-%m-%dT%H:%M:%S.000Z') if is_disconnected else None,
             'isHandleMaBom': False,
             'tienchuachotngay': 0,
             'litchuachotngay': 0,
+            'mili': 0 if is_disconnected else lit_raw,
+            'money': 0 if is_disconnected else tien,
         }
     except Exception as e:
         logging.error(f"Lỗi khi parse dữ liệu pump ID {pump_id}: {e}")
@@ -334,6 +352,10 @@ _socket_lock = Lock()
 _cached_data = None
 _cached_time = None
 _CACHE_TTL = 1.5  # Dữ liệu cache có hiệu lực trong 1.5 giây
+
+# Cache mã bơm cuối cùng biết được cho mỗi ID vòi (kể cả khi offline)
+# Format: {pump_id: {'pump': 14851, 'dongia': 27220, 'metro': '...', 'metroId': 1}}
+_last_known_pump = {}
 
 def get_data_from_socket(pump_ids):
     """
@@ -395,20 +417,50 @@ def get_data_from_socket(pump_ids):
         return results if results else None
 
 def _make_disconnected_entry(pid):
-    """Tạo entry mất kết nối theo format 6969"""
+    """Tạo entry mất kết nối theo format 6969, giữ nguyên mã bơm cũ"""
+    last = _last_known_pump.get(pid, {})
+    last_pump = last.get('pump', 0)
+    last_dongia = last.get('dongia', 0)
+    last_metro = last.get('metro', '')
+    last_metro_id = last.get('metroId', 0)
+    now = datetime.now()
+    now_str = now.strftime('%d-%m-%Y %H:%M:%S')
+    now_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
     return {
         'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
         'status': 'mất kết nối', 'statusID': 0,
-        'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
-        'pump': 0, 'currentmaBom': 0,
+        'dongia': last_dongia, 'lit': 0, 'tien': 0, 'tienOld': 0,
+        'pump': last_pump, 'currentmaBom': last_pump,
         'ca_Lit': 0, 'ca_mLit': 0,
         'tongsolitdenhientai': 0, 'totalcare': 0,
-        'macabom': 0, 'caID': 0,
-        'metro': '', 'metroId': 0, 'flag': 0,
-        'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
-        'MaBomMoiNhat': {'pump': 0},
-        'CaBomMoiNhat': {}, 'CaBomCu': [],
-        'isDisconnected': True, 'isHandleMaBom': False,
+        'macabom': 0,
+        'metro': last_metro, 'metroId': last_metro_id, 'flag': 0,
+        'IDKhachhang': None,
+        'thoigianUpdateCuoi': now_str,
+        'flagGetCaBom': True,
+        'flagGetMaBom': True,
+        'lenhsetthoigian_gannhat': None,
+        'MaBomMoiNhat': {
+            'idca': 0, 'idcot': pid,
+            'date': now_iso, 'startTime': now_iso,
+            'money': 0, 'mili': 0, 'pos': 0,
+            'pump': last_pump, 'type': 0,
+            'id1': 0, 'id2': 0, 'gia': -1,
+            'startTimeDate_Text': now.strftime('%d/%m/%Y %H:%M:%S'),
+            'date_Text': now.strftime('%d/%m/%Y %H:%M:%S'),
+            'idct': None,
+        },
+        'CaBomMoiNhat': {'idca': 0, 'gia': last_dongia},
+        'CaBomCu': [],
+        'isGiaBomChange': False,
+        'hanmuc': None,
+        'isDisconnected': True,
+        'timeStartDisconnect': now_iso,
+        'isHandleMaBom': False,
+        'tienchuachotngay': 0,
+        'litchuachotngay': 0,
+        'mili': 0,
+        'money': 0,
     }
 
 # ============================================================
@@ -453,8 +505,10 @@ def send_data_to_flask(data, port):
         for d in data:
             print(f"  Vòi {d.get('id')}: {d.get('status')} | Mã:{d.get('pump')} | {d.get('lit',0):.3f}L | {d.get('tien',0):,}đ | {d.get('dongia',0):,}đ/L")
         response = requests.post(flask_url, json=data, timeout=60)
+        print(f"[← SV] HTTP {response.status_code}: {response.text[:120]}")
         logging.info(f"Dữ liệu đã gửi tới Flask server. Mã trạng thái: {response.status_code}")
     except requests.exceptions.RequestException as e:
+        print(f"[← SV] LỖI gửi lên server: {e}")
         logging.error(f"Lỗi khi gửi dữ liệu tới Flask server: {e}")
 
 def check_getdata_status(port, version, mac):
