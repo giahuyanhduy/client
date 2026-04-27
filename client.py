@@ -9,7 +9,7 @@ import socket
 import struct
 import logging
 from datetime import datetime, timedelta
-from threading import Thread
+from threading import Thread, Lock
 
 logging.basicConfig(filename='client_log.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
@@ -307,95 +307,84 @@ def get_pump_ids_from_settings():
     logging.warning("Không tìm thấy app_settings.json, dùng mặc định [1,2,3,4]")
     return [1, 2, 3, 4]
 
+# Lock để tránh 2 thread cùng kết nối socket 8086 đồng thời
+_socket_lock = Lock()
+_cached_data = None
+_cached_time = None
+_CACHE_TTL = 1.5  # Dữ liệu cache có hiệu lực trong 1.5 giây
+
 def get_data_from_socket(pump_ids):
     """
     Kết nối tới KIT qua Socket 8086, quét từng vòi bơm.
+    Sử dụng Lock + Cache để tránh xung đột khi 2 thread gọi đồng thời.
     Trả về list[dict] giống format của API 6969 /GetfullupdateArr.
     """
-    HOST = '127.0.0.1'
-    PORT = 8086
-    results = []
+    global _cached_data, _cached_time
     
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(5.0)
-            s.connect((HOST, PORT))
-            
+    # Kiểm tra cache: nếu dữ liệu còn mới thì trả về luôn, không cần kết nối lại
+    if _cached_data and _cached_time:
+        age = (datetime.now() - _cached_time).total_seconds()
+        if age < _CACHE_TTL:
+            return _cached_data
+    
+    # Chỉ cho phép 1 thread kết nối socket tại một thời điểm
+    with _socket_lock:
+        # Double-check cache sau khi lấy được lock (thread khác có thể đã cập nhật)
+        if _cached_data and _cached_time:
+            age = (datetime.now() - _cached_time).total_seconds()
+            if age < _CACHE_TTL:
+                return _cached_data
+        
+        HOST = '127.0.0.1'
+        PORT = 8086
+        results = []
+        
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5.0)
+                s.connect((HOST, PORT))
+                
+                for pid in pump_ids:
+                    try:
+                        packet = _build_cmd_0x49(pid)
+                        s.sendall(packet)
+                        response = s.recv(1024)
+                        if response:
+                            parsed = _parse_pump_response(response, pid)
+                            if parsed:
+                                results.append(parsed)
+                            else:
+                                results.append(_make_disconnected_entry(pid))
+                    except Exception as e:
+                        logging.error(f"Lỗi khi quét pump ID {pid}: {e}")
+                        results.append(_make_disconnected_entry(pid))
+        except Exception as e:
+            logging.error(f"Lỗi kết nối Socket 8086: {e}")
             for pid in pump_ids:
-                try:
-                    packet = _build_cmd_0x49(pid)
-                    s.sendall(packet)
-                    response = s.recv(1024)
-                    if response:
-                        parsed = _parse_pump_response(response, pid)
-                        if parsed:
-                            results.append(parsed)
-                        else:
-                            # Vòi không phản hồi hợp lệ -> đánh dấu mất kết nối
-                            results.append({
-                                'timeOut': 0,
-                                'id': pid,
-                                'com': '127.0.0.18086',
-                                'status': 'mất kết nối',
-                                'statusID': 0,
-                                'dongia': 0,
-                                'lit': 0,
-                                'tien': 0,
-                                'tienOld': 0,
-                                'pump': 0,
-                                'currentmaBom': 0,
-                                'ca_Lit': 0,
-                                'ca_mLit': 0,
-                                'tongsolitdenhientai': 0,
-                                'totalcare': 0,
-                                'macabom': 0,
-                                'caID': 0,
-                                'metro': '',
-                                'metroId': 0,
-                                'flag': 0,
-                                'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
-                                'MaBomMoiNhat': {'pump': 0},
-                                'CaBomMoiNhat': {},
-                                'CaBomCu': [],
-                                'isDisconnected': True,
-                                'isHandleMaBom': False,
-                            })
-                except Exception as e:
-                    logging.error(f"Lỗi khi quét pump ID {pid}: {e}")
-                    results.append({
-                        'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
-                        'status': 'mất kết nối', 'statusID': 0,
-                        'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
-                        'pump': 0, 'currentmaBom': 0,
-                        'ca_Lit': 0, 'ca_mLit': 0,
-                        'tongsolitdenhientai': 0, 'totalcare': 0,
-                        'macabom': 0, 'caID': 0,
-                        'metro': '', 'metroId': 0, 'flag': 0,
-                        'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
-                        'MaBomMoiNhat': {'pump': 0},
-                        'CaBomMoiNhat': {}, 'CaBomCu': [],
-                        'isDisconnected': True, 'isHandleMaBom': False,
-                    })
-    except Exception as e:
-        logging.error(f"Lỗi kết nối Socket 8086: {e}")
-        # Tất cả vòi mất kết nối
-        for pid in pump_ids:
-            results.append({
-                'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
-                'status': 'mất kết nối', 'statusID': 0,
-                'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
-                'pump': 0, 'currentmaBom': 0,
-                'ca_Lit': 0, 'ca_mLit': 0,
-                'tongsolitdenhientai': 0, 'totalcare': 0,
-                'macabom': 0, 'caID': 0,
-                'metro': '', 'metroId': 0, 'flag': 0,
-                'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
-                'MaBomMoiNhat': {'pump': 0},
-                'CaBomMoiNhat': {}, 'CaBomCu': [],
-                'isDisconnected': True, 'isHandleMaBom': False,
-            })
-    
-    return results if results else None
+                results.append(_make_disconnected_entry(pid))
+        
+        if results:
+            _cached_data = results
+            _cached_time = datetime.now()
+        
+        return results if results else None
+
+def _make_disconnected_entry(pid):
+    """Tạo entry mất kết nối theo format 6969"""
+    return {
+        'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
+        'status': 'mất kết nối', 'statusID': 0,
+        'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
+        'pump': 0, 'currentmaBom': 0,
+        'ca_Lit': 0, 'ca_mLit': 0,
+        'tongsolitdenhientai': 0, 'totalcare': 0,
+        'macabom': 0, 'caID': 0,
+        'metro': '', 'metroId': 0, 'flag': 0,
+        'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
+        'MaBomMoiNhat': {'pump': 0},
+        'CaBomMoiNhat': {}, 'CaBomCu': [],
+        'isDisconnected': True, 'isHandleMaBom': False,
+    }
 
 # ============================================================
 # CÁC HÀM API 6969 (CŨ - GIỮ NGUYÊN)
