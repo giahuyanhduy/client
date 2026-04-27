@@ -5,12 +5,26 @@ import subprocess
 import re
 import random
 import json
+import socket
+import struct
 import logging
 from datetime import datetime, timedelta
 from threading import Thread
 
 logging.basicConfig(filename='client_log.log', level=logging.INFO, 
                     format='%(asctime)s %(levelname)s:%(message)s')
+
+# ============================================================
+# CHẾ ĐỘ HOẠT ĐỘNG:
+#   - MODE_API  = Dùng API localhost:6969 (cũ, mặc định)
+#   - MODE_8086 = Dùng Socket 8086 (khi #MAXPUMP= trong /opt/autorun)
+# ============================================================
+MODE_API = "api"
+MODE_8086 = "8086"
+
+# ============================================================
+# CÁC HÀM TIỆN ÍCH CHUNG
+# ============================================================
 
 def get_cpu_arch():
     try:
@@ -28,12 +42,48 @@ def get_cpu_arch():
         logging.error(f"Lỗi không mong muốn khi lấy kiến trúc CPU: {e}")
         return 'Unknown'
 
-def get_version_from_js():
-    possible_paths = [
-        '/home/Phase_3/GasController.js',
-        '/home/giang/Phase_3/GasController.js'
-    ]
+def detect_mode():
+    """
+    Kiểm tra file /opt/autorun:
+      - Nếu tìm thấy dòng #MAXPUMP= (đã bị comment) -> dùng MODE_8086
+      - Nếu MAXPUMP= đang active hoặc không có -> dùng MODE_API (cũ)
+    """
+    try:
+        with open('/opt/autorun', 'r') as file:
+            content = file.read()
+            # Tìm dòng #MAX_PUMP= hoặc #MAXPUMP= (đã comment)
+            if re.search(r'^\s*#\s*MAX_?PUMP\s*=', content, re.MULTILINE):
+                logging.info("Phát hiện #MAX_PUMP= (commented). Chuyển sang chế độ Socket 8086.")
+                return MODE_8086
+            else:
+                logging.info("MAX_PUMP= active hoặc không có. Dùng chế độ API 6969.")
+                return MODE_API
+    except Exception as e:
+        logging.error(f"Lỗi khi đọc /opt/autorun để detect mode: {e}")
+        return MODE_API
 
+def get_version(mode):
+    """
+    Nếu mode = 8086 -> version = "{CPU}-8086"
+    Nếu mode = api  -> version lấy từ GasController.js (logic cũ)
+    """
+    cpu_arch = get_cpu_arch()
+    
+    if mode == MODE_8086:
+        version = f"{cpu_arch}-8086"
+        # Vẫn kiểm tra IPS/Fuelmet
+        has_ips, has_fuelmet = _check_ips_fuelmet()
+        if has_ips and has_fuelmet:
+            return version + "-IPS-Fuelmet"
+        elif has_ips:
+            return version + "-IPS"
+        elif has_fuelmet:
+            return version + "-Fuelmet"
+        return version
+    else:
+        return get_version_from_js()
+
+def _check_ips_fuelmet():
     has_ips = False
     has_fuelmet = False
     try:
@@ -44,17 +94,24 @@ def get_version_from_js():
             if 'fuelmet' in content:
                 has_fuelmet = True
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra ./ips hoặc fuelmet: {e}")
+        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra IPS/Fuelmet: {e}")
+    return has_ips, has_fuelmet
 
+def get_version_from_js():
+    possible_paths = [
+        '/home/Phase_3/GasController.js',
+        '/home/giang/Phase_3/GasController.js'
+    ]
+    has_ips, has_fuelmet = _check_ips_fuelmet()
     cpu_arch = get_cpu_arch()
+    
     for path in possible_paths:
         if os.path.exists(path):
             with open(path, 'r') as file:
                 content = file.read()
                 match = re.search(r'const\s+ver\s*=\s*"([^"]+)"', content)
                 if match:
-                    version = match.group(1)
-                    version = f"{cpu_arch}-{version}"
+                    version = f"{cpu_arch}-{match.group(1)}"
                     if has_ips and has_fuelmet:
                         return version + "-IPS-Fuelmet"
                     elif has_ips:
@@ -87,6 +144,263 @@ def get_port_from_file():
         logging.error(f"Lỗi khi đọc port từ file: {e}")
         return None
 
+def get_mac():
+    try:
+        interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \\K\\w+'"
+        interface = subprocess.check_output(interface_cmd, shell=True).decode().strip()
+        result = subprocess.check_output(f"ip link show {interface}", shell=True).decode()
+        mac_match = re.search(r"ether ([\da-fA-F:]+)", result)
+        if mac_match:
+            return mac_match.group(1)
+    except subprocess.CalledProcessError as e:
+        print(f"Lỗi khi chạy lệnh ip link: {e}")
+        logging.error(f"Lỗi khi chạy lệnh ip link: {e}")
+    except Exception as e:
+        print(f"Lỗi lấy MAC Address: {e}")
+        logging.error(f"Lỗi lấy MAC Address: {e}")
+    return "00:00:00:00:00:00"
+
+# ============================================================
+# CÁC HÀM SOCKET 8086 (MỚI)
+# ============================================================
+
+STATUS_MAP = {
+    0x00: 'offline',          # Offline / Power off
+    0x01: 'offline',          # Không hoạt động
+    0x02: 'offline',          # Chưa sẵn sàng
+    0x06: 'sẵn sàng',        # Idle - Sẵn sàng bơm
+    0x07: 'gọi',             # Calling - Nhấc vòi / Gọi bơm
+    0x08: 'đang bơm',        # Busy / Fueling - Đang bơm xăng
+    0x09: 'đang bơm',        # Authorized / Fueling started
+    0x0A: 'kết thúc',        # Completed - Đã bơm xong, chờ treo vòi
+    0x0B: 'lỗi',             # Error
+    0x0C: 'tạm dừng',        # Suspended - Tạm dừng bơm
+    0x0E: 'sẵn sàng',        # Idle variant
+    0x10: 'sẵn sàng',        # Extended idle - Đã treo vòi, sẵn sàng
+    0x11: 'sẵn sàng',        # Post-transaction idle
+    0x14: 'đang bơm',        # Fueling variant
+}
+
+FUEL_MAP = {
+    1: {'metro': 'DO 0.05S', 'metroId': 1},
+    2: {'metro': 'E5 RON92', 'metroId': 2},
+    3: {'metro': 'RON95', 'metroId': 3},
+    4: {'metro': 'DO 0.01S', 'metroId': 4},
+}
+
+def _calculate_checksum(data):
+    total = sum(data)
+    return (256 - (total % 256)) % 256
+
+def _build_cmd_0x49(device_id):
+    stx = 0x10
+    cnt = 0x06
+    cmd = 0x49
+    cmd_id = 0xFF
+    payload = bytearray([stx, cnt, device_id, cmd, cmd_id])
+    payload.append(_calculate_checksum(payload))
+    return payload
+
+def _parse_pump_response(data, pump_id):
+    """
+    Parse binary response từ KIT và chuyển thành JSON format GIỐNG HỆT API 6969.
+    """
+    if len(data) < 47:
+        return None
+    if sum(data) % 256 != 0:
+        logging.error(f"Checksum lỗi cho pump ID {pump_id}")
+        return None
+
+    try:
+        status_byte = data[4]
+        pump_code = struct.unpack('<I', data[5:9])[0]
+        lit_raw = struct.unpack('<I', data[9:13])[0]       # mili-lit
+        gia = struct.unpack('<I', data[13:17])[0]           # đơn giá
+        tien = struct.unpack('<I', data[17:21])[0]          # thành tiền
+        ca_lit = struct.unpack('<I', data[21:25])[0]        # lít trong ca
+        ca_mlit = struct.unpack('<H', data[25:27])[0]       # mili-lít lẻ trong ca
+        tong_lit = struct.unpack('<I', data[27:31])[0]      # tổng lít tích lũy
+        tong_mlit = struct.unpack('<H', data[31:33])[0]     # mili-lít lẻ tổng
+        cur_shift = struct.unpack('<H', data[33:35])[0]     # mã ca hiện tại
+        fuel_type = data[35]                                 # mã nhiên liệu
+        rfid_nv = struct.unpack('<I', data[36:40])[0]       # RFID nhân viên
+        rfid_tx = struct.unpack('<I', data[40:44])[0]       # RFID tài xế
+
+        status_str = STATUS_MAP.get(status_byte, 'sẵn sàng')
+        lit_value = lit_raw / 1000.0
+        fuel_info = FUEL_MAP.get(fuel_type, {'metro': f'Loại {fuel_type}', 'metroId': fuel_type})
+        now = datetime.now()
+        now_str = now.strftime('%d-%m-%Y %H:%M:%S')
+
+        # Tạo JSON format giống hệt API 6969
+        return {
+            'timeOut': 0,
+            'id': pump_id,
+            'com': '127.0.0.18086',
+            'status': status_str,
+            'statusID': status_byte,
+            'dongia': gia,
+            'lit': lit_value,
+            'tien': tien,
+            'tienOld': tien,
+            'pump': pump_code,
+            'currentmaBom': pump_code,
+            'ca_Lit': ca_lit,
+            'ca_mLit': ca_mlit,
+            'tongsolitdenhientai': tong_lit,
+            'totalcare': tong_mlit,
+            'macabom': cur_shift,
+            'caID': cur_shift,
+            'metro': fuel_info['metro'],
+            'metroId': fuel_info['metroId'],
+            'flag': 0,
+            'IDKhachhang': None,
+            'thoigianUpdateCuoi': now_str,
+            'flagGetCaBom': True,
+            'flagGetMaBom': True,
+            'MaBomMoiNhat': {
+                'idca': cur_shift,
+                'idcot': pump_id,
+                'date': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                'money': tien,
+                'mili': lit_raw,
+                'pos': 0,
+                'pump': pump_code,
+                'type': fuel_type,
+                'id1': rfid_nv,
+                'id2': rfid_tx,
+                'gia': -1,
+            },
+            'CaBomMoiNhat': {
+                'idca': cur_shift,
+                'gia': gia
+            },
+            'CaBomCu': [],
+            'isGiaBomChange': False,
+            'hanmuc': None,
+            'isDisconnected': False,
+            'isHandleMaBom': False,
+            'tienchuachotngay': 0,
+            'litchuachotngay': 0,
+        }
+    except Exception as e:
+        logging.error(f"Lỗi khi parse dữ liệu pump ID {pump_id}: {e}")
+        return None
+
+def get_pump_ids_from_settings():
+    """Đọc danh sách ID vòi bơm từ app_settings.json"""
+    paths = ['app_settings.json', '/root/app_settings.json', '/home/app_settings.json']
+    for path in paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    settings = json.load(f)
+                    ids = []
+                    for pts in settings.get('ptss', []):
+                        for disp in pts.get('dispensers', []):
+                            ids.append(disp.get('id'))
+                    if ids:
+                        logging.info(f"Đã đọc {len(ids)} pump IDs từ {path}: {ids}")
+                        return ids
+            except Exception as e:
+                logging.error(f"Lỗi khi đọc {path}: {e}")
+    logging.warning("Không tìm thấy app_settings.json, dùng mặc định [1,2,3,4]")
+    return [1, 2, 3, 4]
+
+def get_data_from_socket(pump_ids):
+    """
+    Kết nối tới KIT qua Socket 8086, quét từng vòi bơm.
+    Trả về list[dict] giống format của API 6969 /GetfullupdateArr.
+    """
+    HOST = '127.0.0.1'
+    PORT = 8086
+    results = []
+    
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(5.0)
+            s.connect((HOST, PORT))
+            
+            for pid in pump_ids:
+                try:
+                    packet = _build_cmd_0x49(pid)
+                    s.sendall(packet)
+                    response = s.recv(1024)
+                    if response:
+                        parsed = _parse_pump_response(response, pid)
+                        if parsed:
+                            results.append(parsed)
+                        else:
+                            # Vòi không phản hồi hợp lệ -> đánh dấu mất kết nối
+                            results.append({
+                                'timeOut': 0,
+                                'id': pid,
+                                'com': '127.0.0.18086',
+                                'status': 'mất kết nối',
+                                'statusID': 0,
+                                'dongia': 0,
+                                'lit': 0,
+                                'tien': 0,
+                                'tienOld': 0,
+                                'pump': 0,
+                                'currentmaBom': 0,
+                                'ca_Lit': 0,
+                                'ca_mLit': 0,
+                                'tongsolitdenhientai': 0,
+                                'totalcare': 0,
+                                'macabom': 0,
+                                'caID': 0,
+                                'metro': '',
+                                'metroId': 0,
+                                'flag': 0,
+                                'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
+                                'MaBomMoiNhat': {'pump': 0},
+                                'CaBomMoiNhat': {},
+                                'CaBomCu': [],
+                                'isDisconnected': True,
+                                'isHandleMaBom': False,
+                            })
+                except Exception as e:
+                    logging.error(f"Lỗi khi quét pump ID {pid}: {e}")
+                    results.append({
+                        'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
+                        'status': 'mất kết nối', 'statusID': 0,
+                        'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
+                        'pump': 0, 'currentmaBom': 0,
+                        'ca_Lit': 0, 'ca_mLit': 0,
+                        'tongsolitdenhientai': 0, 'totalcare': 0,
+                        'macabom': 0, 'caID': 0,
+                        'metro': '', 'metroId': 0, 'flag': 0,
+                        'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
+                        'MaBomMoiNhat': {'pump': 0},
+                        'CaBomMoiNhat': {}, 'CaBomCu': [],
+                        'isDisconnected': True, 'isHandleMaBom': False,
+                    })
+    except Exception as e:
+        logging.error(f"Lỗi kết nối Socket 8086: {e}")
+        # Tất cả vòi mất kết nối
+        for pid in pump_ids:
+            results.append({
+                'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
+                'status': 'mất kết nối', 'statusID': 0,
+                'dongia': 0, 'lit': 0, 'tien': 0, 'tienOld': 0,
+                'pump': 0, 'currentmaBom': 0,
+                'ca_Lit': 0, 'ca_mLit': 0,
+                'tongsolitdenhientai': 0, 'totalcare': 0,
+                'macabom': 0, 'caID': 0,
+                'metro': '', 'metroId': 0, 'flag': 0,
+                'thoigianUpdateCuoi': datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
+                'MaBomMoiNhat': {'pump': 0},
+                'CaBomMoiNhat': {}, 'CaBomCu': [],
+                'isDisconnected': True, 'isHandleMaBom': False,
+            })
+    
+    return results if results else None
+
+# ============================================================
+# CÁC HÀM API 6969 (CŨ - GIỮ NGUYÊN)
+# ============================================================
+
 def get_data_from_url(url):
     try:
         response = requests.get(url)
@@ -98,6 +412,24 @@ def get_data_from_url(url):
     except requests.exceptions.RequestException as e:
         print(f"Lỗi khi lấy dữ liệu từ URL: {e}")
         return None
+
+# ============================================================
+# HÀM LẤY DỮ LIỆU THỐNG NHẤT (TỰ CHỌN MODE)
+# ============================================================
+
+def get_pump_data(mode, pump_ids=None):
+    """
+    Hàm trung gian: tùy mode mà lấy dữ liệu từ Socket hoặc API.
+    Trả về list[dict] với cùng format.
+    """
+    if mode == MODE_8086:
+        return get_data_from_socket(pump_ids)
+    else:
+        return get_data_from_url("http://localhost:6969/GetfullupdateArr")
+
+# ============================================================
+# CÁC HÀM GỬI DỮ LIỆU LÊN SERVER (GIỮ NGUYÊN)
+# ============================================================
 
 def send_data_to_flask(data, port):
     flask_url = f"http://14.225.192.65/api/receive_data/{port}"
@@ -159,16 +491,26 @@ def send_warning(port, pump_id, warning_type, mabom):
     except requests.exceptions.RequestException as e:
         logging.error(f"Lỗi khi gửi cảnh báo: {e}")
 
+def send_all_disconnected_warning(port):
+    warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
+    try:
+        response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối.'})
+        print(f"Đã gửi cảnh báo mất kết nối tất cả cho port {port}")
+    except requests.exceptions.RequestException as e:
+        print(f"Lỗi khi gửi cảnh báo mất kết nối tất cả: {e}")
+
+# ============================================================
+# HÀM BẢO TRÌ HỆ THỐNG (GIỮ NGUYÊN)
+# ============================================================
+
 def check_disk_and_clear_logs(threshold=85):
     try:
-        # Kiểm tra dung lượng ổ cứng sử dụng lệnh df
         output = subprocess.check_output(['df', '-h', '/'], stderr=subprocess.STDOUT).decode()
         lines = output.splitlines()
         for line in lines:
             if line.strip().endswith(' /'):
                 parts = line.split()
                 if len(parts) >= 5:
-                    # Lấy phần trăm sử dụng từ cột thứ 5 (ví dụ: "85%")
                     usage_str = parts[4].replace('%', '')
                     disk_usage_percent = float(usage_str)
                     print(f"Mức sử dụng ổ cứng hiện tại: {disk_usage_percent:.2f}%")
@@ -177,46 +519,33 @@ def check_disk_and_clear_logs(threshold=85):
                         print(f"Ổ cứng sử dụng vượt quá {threshold}%. Tiến hành xóa các file log...")
                         logging.info(f"Ổ cứng sử dụng vượt quá {threshold}%. Tiến hành xóa các file log...")
                         try:
-                            # Xóa tất cả file log trong toàn bộ hệ thống
                             result1 = subprocess.check_output(
                                 "find / -type f -name '*.log' -execdir rm -- '{}' +",
-                                shell=True,
-                                stderr=subprocess.STDOUT
+                                shell=True, stderr=subprocess.STDOUT
                             ).decode()
                             print(f"Đã xóa các file log trong toàn bộ hệ thống: {result1}")
                             logging.info(f"Đã xóa các file log trong toàn bộ hệ thống: {result1}")
-                            
-                            # Xóa thêm các file log và cache khác
                             try:
-                                # Xóa file log cũ trong /var/log
                                 result2 = subprocess.check_output(
                                     "find /var/log -type f -name '*.log.*' -exec rm -v {} \\; 2>/dev/null || true",
-                                    shell=True,
-                                    stderr=subprocess.STDOUT
+                                    shell=True, stderr=subprocess.STDOUT
                                 ).decode()
                                 if result2.strip():
                                     print(f"Đã xóa các file log cũ: {result2}")
                                     logging.info(f"Đã xóa các file log cũ: {result2}")
-                                
-                                # Xóa cache apt
                                 result3 = subprocess.check_output(
                                     "apt-get clean && apt-get autoclean",
-                                    shell=True,
-                                    stderr=subprocess.STDOUT
+                                    shell=True, stderr=subprocess.STDOUT
                                 ).decode()
-                                print("Đã dọn dẹp cache apt")
                                 logging.info("Đã dọn dẹp cache apt")
-                                
-                                # Xóa file tạm
+                                print("Đã dọn dẹp cache apt")
                                 result4 = subprocess.check_output(
                                     "find /tmp -type f -atime +7 -exec rm -v {} \\; 2>/dev/null || true",
-                                    shell=True,
-                                    stderr=subprocess.STDOUT
+                                    shell=True, stderr=subprocess.STDOUT
                                 ).decode()
                                 if result4.strip():
                                     print(f"Đã xóa file tạm cũ: {result4}")
                                     logging.info(f"Đã xóa file tạm cũ: {result4}")
-                                    
                             except subprocess.CalledProcessError as e:
                                 print(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
                                 logging.error(f"Lỗi khi dọn dẹp thêm: {e.output.decode()}")
@@ -236,6 +565,10 @@ def check_disk_and_clear_logs(threshold=85):
     except Exception as e:
         print(f"Lỗi khi kiểm tra ổ cứng: {str(e)}")
         logging.error(f"Lỗi khi kiểm tra ổ cứng: {str(e)}")
+
+# ============================================================
+# LOGIC GIÁM SÁT MABOM (GIỮ NGUYÊN)
+# ============================================================
 
 lastRestartAll = None
 lastNonSequentialRestart = None
@@ -362,15 +695,11 @@ def check_mabom(data, mabom_history, file_path, port, connection_status, is_all_
     except Exception as e:
         logging.error(f"Lỗi trong check_mabom: {e}")
 
-def send_all_disconnected_warning(port):
-    warning_url = f"http://14.225.192.65/api/warning/{port}/all/all_disconnection"
-    try:
-        response = requests.post(warning_url, json={'message': 'Tất cả các vòi đều mất kết nối.'})
-        print(f"Đã gửi cảnh báo mất kết nối tất cả cho port {port}")
-    except requests.exceptions.RequestException as e:
-        print(f"Lỗi khi gửi cảnh báo mất kết nối tất cả: {e}")
+# ============================================================
+# VÒNG LẶP CHÍNH
+# ============================================================
 
-def check_mabom_continuously(port, mabom_file_path):
+def check_mabom_continuously(port, mabom_file_path, mode, pump_ids):
     if os.path.exists(mabom_file_path):
         try:
             with open(mabom_file_path, 'r') as file:
@@ -392,61 +721,66 @@ def check_mabom_continuously(port, mabom_file_path):
     is_all_disconnect_restart = [False]
 
     while True:
-        data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
-        if data_from_url:
-            check_mabom(data_from_url, mabom_history, mabom_file_path, port, connection_status, is_all_disconnect_restart)
+        data_from_source = get_pump_data(mode, pump_ids)
+        if data_from_source:
+            check_mabom(data_from_source, mabom_history, mabom_file_path, port, connection_status, is_all_disconnect_restart)
         else:
-            print("Không lấy được dữ liệu từ URL")
+            print("Không lấy được dữ liệu từ nguồn")
         time.sleep(2)
 
 def random_sleep_time():
     return random.uniform(4, 8)
 
-def send_data_continuously(port, version, mac):
+def send_data_continuously(port, version, mac, mode, pump_ids):
     while True:
         if check_getdata_status(port, version, mac):
-            data_from_url = get_data_from_url("http://localhost:6969/GetfullupdateArr")
-            if data_from_url:
-                send_data_to_flask(data_from_url, port)
+            data_from_source = get_pump_data(mode, pump_ids)
+            if data_from_source:
+                send_data_to_flask(data_from_source, port)
                 print("Dữ liệu đã gửi tới Flask server")
             else:
-                print("Không lấy được dữ liệu từ URL")
+                print("Không lấy được dữ liệu từ nguồn")
         else:
             print("getdata đang Off")
         
         sleep_duration = random_sleep_time()
         time.sleep(sleep_duration)
 
-def get_mac():
-    try:
-        interface_cmd = "ip route get 1.1.1.1 | grep -oP 'dev \\K\\w+'"
-        interface = subprocess.check_output(interface_cmd, shell=True).decode().strip()
-        result = subprocess.check_output(f"ip link show {interface}", shell=True).decode()
-        mac_match = re.search(r"ether ([\da-fA-F:]+)", result)
-        if mac_match:
-            return mac_match.group(1)
-    except subprocess.CalledProcessError as e:
-        print(f"Lỗi khi chạy lệnh ip link: {e}")
-        logging.error(f"Lỗi khi chạy lệnh ip link: {e}")
-    except Exception as e:
-        print(f"Lỗi lấy MAC Address: {e}")
-        logging.error(f"Lỗi lấy MAC Address: {e}")
-    return "00:00:00:00:00:00"
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
     check_disk_and_clear_logs()
+    
+    # Detect chế độ hoạt động
+    mode = detect_mode()
+    print(f"========================================")
+    print(f"  CHẾ ĐỘ: {'Socket 8086' if mode == MODE_8086 else 'API 6969 (cũ)'}")
+    print(f"========================================")
+    
+    # Lấy danh sách vòi bơm (chỉ cần cho mode 8086)
+    pump_ids = None
+    if mode == MODE_8086:
+        pump_ids = get_pump_ids_from_settings()
+        print(f"Danh sách vòi bơm: {pump_ids}")
+    
     port = get_port_from_file()
     if not port:
         print("Không tìm thấy port. Thoát.")
         return
+    
     mac = get_mac()
     if not mac:
         print("Không tìm thấy MAC. Thoát.")
         return
+    
+    version = get_version(mode)
+    
     print(f"Sử dụng port: {port}")
     print(f"Sử dụng MAC: {mac}")
-    version = get_version_from_js()
     print(f"Sử dụng version: {version}")
+    
     script_dir = os.path.dirname(os.path.realpath(__file__))
     mabom_file_path = os.path.join(script_dir, 'mabom.json')
 
@@ -459,9 +793,9 @@ def main():
             print(f"Lỗi khi tạo file lịch sử mabom: {e}")
             return
 
-    mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path))
+    mabom_thread = Thread(target=check_mabom_continuously, args=(port, mabom_file_path, mode, pump_ids))
     mabom_thread.start()
-    send_data_continuously(port, version, mac)
+    send_data_continuously(port, version, mac, mode, pump_ids)
 
 if __name__ == "__main__":
     main()
