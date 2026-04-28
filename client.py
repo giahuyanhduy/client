@@ -249,6 +249,7 @@ def _parse_pump_response(data, pump_id):
         status_str = STATUS_MAP.get(status_byte, 'sẵn sàng')
         fuel_info = FUEL_MAP.get(fuel_type, {'metro': 'NONE', 'metroId': fuel_type})
         now = datetime.now()
+        utc_now = datetime.utcnow()
         now_str = now.strftime('%d-%m-%Y %H:%M:%S')
 
         # Kiểm tra trạng thái offline → đánh dấu mất kết nối
@@ -297,8 +298,8 @@ def _parse_pump_response(data, pump_id):
             'MaBomMoiNhat': {
                 'idca': cur_shift,
                 'idcot': pump_id,
-                'date': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-                'startTime': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                'date': utc_now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                'startTime': utc_now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
                 'money': tien,
                 'mili': lit_val,
                 'pos': 0,
@@ -319,7 +320,7 @@ def _parse_pump_response(data, pump_id):
             'isGiaBomChange': False,
             'hanmuc': None,
             'isDisconnected': is_disconnected,
-            'timeStartDisconnect': now.strftime('%Y-%m-%dT%H:%M:%S.000Z') if is_disconnected else None,
+            'timeStartDisconnect': utc_now.strftime('%Y-%m-%dT%H:%M:%S.000Z') if is_disconnected else None,
             'isHandleMaBom': False,
             'tienchuachotngay': 0,
             'litchuachotngay': 0,
@@ -427,8 +428,9 @@ def _make_disconnected_entry(pid):
     last_metro = last.get('metro', '')
     last_metro_id = last.get('metroId', 0)
     now = datetime.now()
+    utc_now = datetime.utcnow()
     now_str = now.strftime('%d-%m-%Y %H:%M:%S')
-    now_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    now_iso = utc_now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
     return {
         'timeOut': 0, 'id': pid, 'com': '127.0.0.18086',
         'status': 'mất kết nối', 'statusID': 0,
@@ -517,8 +519,8 @@ def get_pump_data(mode, pump_ids=None):
                 # Nếu không, bám vào thời gian đầu tiên hệ thống Python ghi nhận.
                 current_time_iso = item.get('timeStartDisconnect')
                 if not current_time_iso: # Fallback
-                    now = datetime.now()
-                    current_time_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    utc_now = datetime.utcnow()
+                    current_time_iso = utc_now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
                 _disconnection_times[pump_id] = current_time_iso
             
             # Ghi đè timeStartDisconnect bằng giá trị đã nhớ để tránh bị đổi liên tục
