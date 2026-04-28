@@ -510,9 +510,15 @@ def get_pump_data(mode, pump_ids=None):
     # Chuẩn hóa timeStartDisconnect cho toàn bộ dữ liệu trả về
     for item in data:
         pump_id = item.get('id')
-        is_disconnected = item.get('isDisconnected', False)
+        
+        # Nhận diện mất kết nối: Kiểm tra cả flag isDisconnected và từ khóa trong status (cho mode 6969)
+        status_str = str(item.get('status', '')).lower()
+        is_disconnected = item.get('isDisconnected', False) or 'mất kết nối' in status_str
         
         if is_disconnected:
+            # Đồng bộ hóa flag để các module khác (như check_mabom) cũng nhận diện được
+            item['isDisconnected'] = True
+
             # Nếu mới mất kết nối (chưa có trong dictionary)
             if pump_id not in _disconnection_times:
                 # Nếu API cũ gửi timeStartDisconnect chuẩn, giữ lại. 
