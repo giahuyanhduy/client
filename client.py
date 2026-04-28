@@ -483,15 +483,49 @@ def get_data_from_url(url):
 # HÀM LẤY DỮ LIỆU THỐNG NHẤT (TỰ CHỌN MODE)
 # ============================================================
 
+# Dict để lưu thời điểm bắt đầu mất kết nối của từng ID vòi: {pump_id: iso_timestamp}
+_disconnection_times = {}
+
 def get_pump_data(mode, pump_ids=None):
     """
     Hàm trung gian: tùy mode mà lấy dữ liệu từ Socket hoặc API.
     Trả về list[dict] với cùng format.
+    Quản lý logic 'timeStartDisconnect' thống nhất cho cả 2 mode:
+      - Chỉ ghi nhận thời gian mất kết nối lần đầu.
+      - Xóa khỏi cache khi kết nối lại bình thường.
     """
     if mode == MODE_8086:
-        return get_data_from_socket(pump_ids)
+        data = get_data_from_socket(pump_ids)
     else:
-        return get_data_from_url("http://localhost:6969/GetfullupdateArr")
+        data = get_data_from_url("http://localhost:6969/GetfullupdateArr")
+        
+    if not data:
+        return data
+        
+    # Chuẩn hóa timeStartDisconnect cho toàn bộ dữ liệu trả về
+    for item in data:
+        pump_id = item.get('id')
+        is_disconnected = item.get('isDisconnected', False)
+        
+        if is_disconnected:
+            # Nếu mới mất kết nối (chưa có trong dictionary)
+            if pump_id not in _disconnection_times:
+                # Nếu API cũ gửi timeStartDisconnect chuẩn, giữ lại. 
+                # Nếu không, bám vào thời gian đầu tiên hệ thống Python ghi nhận.
+                current_time_iso = item.get('timeStartDisconnect')
+                if not current_time_iso: # Fallback
+                    now = datetime.now()
+                    current_time_iso = now.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                _disconnection_times[pump_id] = current_time_iso
+            
+            # Ghi đè timeStartDisconnect bằng giá trị đã nhớ để tránh bị đổi liên tục
+            item['timeStartDisconnect'] = _disconnection_times[pump_id]
+        else:
+            # Nếu đang kết nối tốt, xóa khỏi bộ nhớ mất kết nối
+            if pump_id in _disconnection_times:
+                del _disconnection_times[pump_id]
+                
+    return data
 
 # ============================================================
 # CÁC HÀM GỬI DỮ LIỆU LÊN SERVER (GIỮ NGUYÊN)
