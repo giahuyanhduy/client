@@ -179,7 +179,7 @@ STATUS_MAP = {
     0x10: 'sẵn sàng',        # Extended idle - Đã treo vòi, sẵn sàng
     0x11: 'sẵn sàng',        # Post-transaction idle
     0x14: 'đang bơm',        # Fueling variant
-    0x20: 'gọi',             # Calling - Nhấc vòi / Đang chuẩn bị (lít về 0)
+    0x20: 'Chuẩn bị',             # Calling - Nhấc vòi / Đang chuẩn bị (lít về 0)
     0x22: 'đang bơm',        # Fueling (xác nhận từ thực tế: lít tăng liên tục)
 }
 
@@ -265,6 +265,9 @@ def _parse_pump_response(data, pump_id):
                 'metroId': fuel_info['metroId'],
             }
 
+        # Tính toán lít thực tế (đã chia 1000)
+        lit_val = 0 if is_disconnected else (lit_raw / 1000.0)
+
         # Tạo JSON format giống hệt API 6969
         return {
             'timeOut': 0,
@@ -273,7 +276,7 @@ def _parse_pump_response(data, pump_id):
             'status': 'mất kết nối' if is_disconnected else status_str,
             'statusID': status_byte,
             'dongia': gia,
-            'lit': 0 if is_disconnected else (lit_raw / 1000.0),
+            'lit': lit_val,
             'tien': 0 if is_disconnected else tien,
             'tienOld': 0 if is_disconnected else tien,
             'pump': pump_code,
@@ -297,7 +300,7 @@ def _parse_pump_response(data, pump_id):
                 'date': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
                 'startTime': now.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
                 'money': tien,
-                'mili': lit_raw,
+                'mili': lit_val,
                 'pos': 0,
                 'pump': pump_code,
                 'type': fuel_type,
@@ -320,7 +323,7 @@ def _parse_pump_response(data, pump_id):
             'isHandleMaBom': False,
             'tienchuachotngay': 0,
             'litchuachotngay': 0,
-            'mili': 0 if is_disconnected else lit_raw,
+            'mili': lit_val,
             'money': 0 if is_disconnected else tien,
         }
     except Exception as e:
