@@ -64,15 +64,15 @@ def detect_mode():
 
 def get_version(mode):
     """
-    Nếu mode = 8086 -> version = "{CPU}-8086"
+    Nếu mode = 8086 -> version = "{CPU}-NONE" hoặc "{CPU}-NANO" (nếu có index.js)
     Nếu mode = api  -> version lấy từ GasController.js (logic cũ)
     """
     cpu_arch = get_cpu_arch()
+    has_ips, has_fuelmet, has_nano = _check_autorun_services()
     
     if mode == MODE_8086:
-        version = f"{cpu_arch}-8086"
-        # Vẫn kiểm tra IPS/Fuelmet
-        has_ips, has_fuelmet = _check_ips_fuelmet()
+        mode_suffix = "NANO" if has_nano else "NONE"
+        version = f"{cpu_arch}-{mode_suffix}"
         if has_ips and has_fuelmet:
             return version + "-IPS-Fuelmet"
         elif has_ips:
@@ -81,28 +81,35 @@ def get_version(mode):
             return version + "-Fuelmet"
         return version
     else:
-        return get_version_from_js()
+        return get_version_from_js(has_ips, has_fuelmet)
 
-def _check_ips_fuelmet():
+def _check_autorun_services():
     has_ips = False
     has_fuelmet = False
+    has_nano = False
     try:
-        with open('/opt/autorun', 'r') as file:
-            content = file.read()
-            if './ips' in content:
-                has_ips = True
-            if 'fuelmet' in content:
-                has_fuelmet = True
+        if os.path.exists('/opt/autorun'):
+            with open('/opt/autorun', 'r') as file:
+                for line in file:
+                    line_strip = line.strip()
+                    # Bỏ qua dòng trống hoặc dòng bị comment bằng dấu #
+                    if not line_strip or line_strip.startswith('#'):
+                        continue
+                    if './ips' in line_strip:
+                        has_ips = True
+                    if 'fuelmet' in line_strip:
+                        has_fuelmet = True
+                    if 'forever start src/index.js' in line_strip:
+                        has_nano = True
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra IPS/Fuelmet: {e}")
-    return has_ips, has_fuelmet
+        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra dịch vụ: {e}")
+    return has_ips, has_fuelmet, has_nano
 
-def get_version_from_js():
+def get_version_from_js(has_ips, has_fuelmet):
     possible_paths = [
         '/home/Phase_3/GasController.js',
         '/home/giang/Phase_3/GasController.js'
     ]
-    has_ips, has_fuelmet = _check_ips_fuelmet()
     cpu_arch = get_cpu_arch()
     
     for path in possible_paths:
