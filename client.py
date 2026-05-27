@@ -104,7 +104,7 @@ def _check_autorun_services():
                         has_ips = True
                     if 'fuelmet' in line_strip:
                         has_fuelmet = True
-                    if 'forever start src/index.js' in line_strip:
+                    if re.search(r'forever\s+start\s+(?:src/)?index\.js', line_strip):
                         has_nano = True
     except Exception as e:
         logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra dịch vụ: {e}")
