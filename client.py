@@ -64,24 +64,29 @@ def detect_mode():
 
 def get_version(mode):
     """
-    Nếu mode = 8086 -> version = "{CPU}-NONE" hoặc "{CPU}-NANO" (nếu có index.js)
-    Nếu mode = api  -> version lấy từ GasController.js (logic cũ)
+    Nếu có index.js hoạt động (cho cả 2 mode) -> version = "{CPU}-NANO"
+    Nếu không có:
+      - Mode 8086 -> version = "{CPU}-NONE"
+      - Mode API  -> version lấy từ GasController.js (logic cũ)
     """
     cpu_arch = get_cpu_arch()
     has_ips, has_fuelmet, has_nano = _check_autorun_services()
     
-    if mode == MODE_8086:
-        mode_suffix = "NANO" if has_nano else "NONE"
-        version = f"{cpu_arch}-{mode_suffix}"
-        if has_ips and has_fuelmet:
-            return version + "-IPS-Fuelmet"
-        elif has_ips:
-            return version + "-IPS"
-        elif has_fuelmet:
-            return version + "-Fuelmet"
-        return version
+    if has_nano:
+        version = f"{cpu_arch}-NANO"
     else:
-        return get_version_from_js(has_ips, has_fuelmet)
+        if mode == MODE_8086:
+            version = f"{cpu_arch}-NONE"
+        else:
+            return get_version_from_js(has_ips, has_fuelmet)
+            
+    if has_ips and has_fuelmet:
+        return version + "-IPS-Fuelmet"
+    elif has_ips:
+        return version + "-IPS"
+    elif has_fuelmet:
+        return version + "-Fuelmet"
+    return version
 
 def _check_autorun_services():
     has_ips = False
