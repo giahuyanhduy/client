@@ -42,27 +42,32 @@ def get_cpu_arch():
         logging.error(f"Lỗi không mong muốn khi lấy kiến trúc CPU: {e}")
         return 'Unknown'
 
-def detect_mode():
+def detect_mode(is_backup=False):
     """
-    Kiểm tra file /opt/autorun:
+    Kiểm tra file cấu hình (/opt/autorun hoặc /opt/autorun_bak nếu backup):
       - Nếu tìm thấy dòng #MAXPUMP= (đã bị comment) -> dùng MODE_8086
       - Nếu MAXPUMP= đang active hoặc không có -> dùng MODE_API (cũ)
     """
+    file_path = '/opt/autorun_bak' if is_backup else '/opt/autorun'
     try:
-        with open('/opt/autorun', 'r') as file:
-            content = file.read()
-            # Tìm dòng #MAX_PUMP= hoặc #MAXPUMP= (đã comment)
-            if re.search(r'^\s*#\s*MAX_?PUMP\s*=', content, re.MULTILINE):
-                logging.info("Phát hiện #MAX_PUMP= (commented). Chuyển sang chế độ Socket 8086.")
-                return MODE_8086
-            else:
-                logging.info("MAX_PUMP= active hoặc không có. Dùng chế độ API 6969.")
-                return MODE_API
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                content = file.read()
+                # Tìm dòng #MAX_PUMP= hoặc #MAXPUMP= (đã comment)
+                if re.search(r'^\s*#\s*MAX_?PUMP\s*=', content, re.MULTILINE):
+                    logging.info(f"Phát hiện #MAX_PUMP= (commented) từ {file_path}. Chuyển sang chế độ Socket 8086.")
+                    return MODE_8086
+                else:
+                    logging.info(f"MAX_PUMP= active hoặc không có ở {file_path}. Dùng chế độ API 6969.")
+                    return MODE_API
+        else:
+            logging.warning(f"Không tìm thấy file cấu hình {file_path} để detect mode.")
+            return MODE_API
     except Exception as e:
-        logging.error(f"Lỗi khi đọc /opt/autorun để detect mode: {e}")
+        logging.error(f"Lỗi khi đọc {file_path} để detect mode: {e}")
         return MODE_API
 
-def get_version(mode):
+def get_version(mode, is_backup=False):
     """
     Nếu có index.js hoạt động (cho cả 2 mode) -> version = "{CPU}-NANO"
     Nếu không có:
@@ -70,31 +75,41 @@ def get_version(mode):
       - Mode API  -> version lấy từ GasController.js (logic cũ)
     """
     cpu_arch = get_cpu_arch()
-    has_ips, has_fuelmet, has_nano = _check_autorun_services()
+    has_ips, has_fuelmet, has_nano = _check_autorun_services(is_backup)
     
     if has_nano:
         version = f"{cpu_arch}-NANO"
+        if has_ips and has_fuelmet:
+            version = version + "-IPS-Fuelmet"
+        elif has_ips:
+            version = version + "-IPS"
+        elif has_fuelmet:
+            version = version + "-Fuelmet"
     else:
         if mode == MODE_8086:
             version = f"{cpu_arch}-NONE"
+            if has_ips and has_fuelmet:
+                version = version + "-IPS-Fuelmet"
+            elif has_ips:
+                version = version + "-IPS"
+            elif has_fuelmet:
+                version = version + "-Fuelmet"
         else:
-            return get_version_from_js(has_ips, has_fuelmet)
+            version = get_version_from_js(has_ips, has_fuelmet)
             
-    if has_ips and has_fuelmet:
-        return version + "-IPS-Fuelmet"
-    elif has_ips:
-        return version + "-IPS"
-    elif has_fuelmet:
-        return version + "-Fuelmet"
+    if is_backup:
+        version = version + "-BAK"
+        
     return version
 
-def _check_autorun_services():
+def _check_autorun_services(is_backup=False):
     has_ips = False
     has_fuelmet = False
     has_nano = False
+    file_path = '/opt/autorun_bak' if is_backup else '/opt/autorun'
     try:
-        if os.path.exists('/opt/autorun'):
-            with open('/opt/autorun', 'r') as file:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
                 for line in file:
                     line_strip = line.strip()
                     # Bỏ qua dòng trống hoặc dòng bị comment bằng dấu #
@@ -107,7 +122,7 @@ def _check_autorun_services():
                     if re.search(r'(?:forever\s+start|node)\s+(?:src/)?index\.js', line_strip):
                         has_nano = True
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file /opt/autorun để kiểm tra dịch vụ: {e}")
+        logging.error(f"Lỗi khi đọc file {file_path} để kiểm tra dịch vụ: {e}")
     return has_ips, has_fuelmet, has_nano
 
 def get_version_from_js(has_ips, has_fuelmet):
@@ -142,19 +157,36 @@ def get_version_from_js(has_ips, has_fuelmet):
     return version
 
 def get_port_from_file():
+    # 1. Thử đọc port từ /opt/autorun
     try:
-        with open('/opt/autorun', 'r') as file:
-            content = file.read()
-            match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
-            if match:
-                port = match.group(1).strip()
-                return port
-            else:
-                logging.error("Không tìm thấy port trong file.")
-                return None
+        if os.path.exists('/opt/autorun'):
+            with open('/opt/autorun', 'r') as file:
+                content = file.read()
+                match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
+                if match:
+                    port = match.group(1).strip()
+                    return port, False
+                else:
+                    logging.error("Không tìm thấy port trong file /opt/autorun.")
     except Exception as e:
-        logging.error(f"Lỗi khi đọc port từ file: {e}")
-        return None
+        logging.error(f"Lỗi khi đọc port từ file /opt/autorun: {e}")
+
+    # 2. Nếu thất bại, thử đọc port từ /opt/autorun_bak
+    try:
+        if os.path.exists('/opt/autorun_bak'):
+            with open('/opt/autorun_bak', 'r') as file:
+                content = file.read()
+                match = re.search(r'(\s\d{4}|\d{5}):localhost:22', content)
+                if match:
+                    port = match.group(1).strip()
+                    logging.info("Đọc port thành công từ file backup /opt/autorun_bak")
+                    return port, True
+                else:
+                    logging.error("Không tìm thấy port trong file /opt/autorun_bak.")
+    except Exception as e:
+        logging.error(f"Lỗi khi đọc port từ file /opt/autorun_bak: {e}")
+
+    return None, False
 
 def get_mac():
     try:
@@ -893,10 +925,18 @@ def send_data_continuously(port, version, mac, mode, pump_ids):
 def main():
     check_disk_and_clear_logs()
     
+    # Lấy port và trạng thái backup
+    port, is_backup = get_port_from_file()
+    if not port:
+        print("Không tìm thấy port. Thoát.")
+        return
+        
     # Detect chế độ hoạt động
-    mode = detect_mode()
+    mode = detect_mode(is_backup)
     print(f"========================================")
     print(f"  CHẾ ĐỘ: {'Socket 8086' if mode == MODE_8086 else 'API 6969 (cũ)'}")
+    if is_backup:
+        print(f"  [CẢNH BÁO] Sử dụng file cấu hình backup /opt/autorun_bak")
     print(f"========================================")
     
     # Lấy danh sách vòi bơm (chỉ cần cho mode 8086)
@@ -905,17 +945,12 @@ def main():
         pump_ids = get_pump_ids_from_settings()
         print(f"Danh sách vòi bơm: {pump_ids}")
     
-    port = get_port_from_file()
-    if not port:
-        print("Không tìm thấy port. Thoát.")
-        return
-    
     mac = get_mac()
     if not mac:
         print("Không tìm thấy MAC. Thoát.")
         return
     
-    version = get_version(mode)
+    version = get_version(mode, is_backup)
     
     print(f"Sử dụng port: {port}")
     print(f"Sử dụng MAC: {mac}")
